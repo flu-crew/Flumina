@@ -82,25 +82,49 @@ Flumina uses a configuration file to keep track of the parameters and easily add
 
 ```bash
 #The directory where your raw reads are located
-READ_DIRECTORY="/PATH-TO/Flumina/test_dataset"
+READ_DIRECTORY="/Flumina/test_dataset"
 
 #CSV with the file name that matches to both read pairs in the "File column" and sample name in the "Sample" column
-RENAME_FILE="/PATH-TO/Flumina/example_file_rename.csv"
+RENAME_FILE="/Flumina/example_file_rename.csv"
 
-REFERENCE_FILE="/PATH-TO/Flumina_test/Flumina/ancestral_reference.fa"
+#The path to the reference file
+REFERENCE_FILE="/Flumina/reference.fa"
+
+# curated csv database with the columns "Gene", "Amino_Acid", and "Type" (category of site) of interest
+AA_DB="/Flumina/curated_database.csv"
+
+# a metadata file with at least one column named "Sample" to join databases
+METADATA="/Flumina/example_metadata.csv"
+
+#Group column name from metadata to summarize and group data i.e. cow versus birds versus poultry
+GROUP_NAMES="discrete_host"
 
 #Whether to overwrite or not
 OVERWRITE=FALSE
 
-#number of threads to use
-THREADS=6
+#If a job is killed mid job, sometimes snakemake will lock directories
+FORCE_UNLOCK=TRUE
+
+#number of threads to use (or jobs to run)
+THREADS=24
 
 #multi-job cluster mode, add in cluster job details. THREADS above becomes number of jobs. Set to FALSE to run without new jobs
-CLUSTER_JOBS="sbatch -p priority --qos=vpru -A nadc_iav -D /PATH-TO/Flumina_test/Flumina --mem 40G --cpus-per-task=2"
+#CLUSTER_JOBS="sbatch -p priority -D /Flumina_test/Flumina --mem 40G --cpus-per-task=2"
+CLUSTER_JOBS=FALSE
+
 ```
 
+## Optional metadata and other files
 
-## Running pipeline 
+details coming soon.
+
+irma_config.sh
+
+sample metadata
+
+curated amino acid database
+
+Running pipeline 
 
 After setting up the file rename configuration file 
 
@@ -110,8 +134,16 @@ bash Flumina config.cfg
 
 ## Running pipeline with multi-job submission
 
+Normally increasing the threads will have a small impact on speed. However, here with SnakeMake multiple jobs can submitted from the script itself. For example, setting threads to 24 in the configuration file will instead allow the script to have 24 simultaenous jobs running at once doing little bits and pieces of the pipeline automatically. All that is needed is to remove "CLUSTER_JOBS=FALSE" and insert your job submission script parameters. These are at the top of the job script used for cluster submission. 
 
+```bash
+#number of threads to use (or jobs to run)
+THREADS=24
 
+#multi-job cluster mode, add in cluster job details. THREADS above becomes number of jobs. Set to FALSE to run without new jobs
+CLUSTER_JOBS="sbatch -p priority -D /Flumina_test/Flumina --mem 40G --cpus-per-task=2"
+
+```
 
 # Upcoming features
 
