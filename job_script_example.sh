@@ -9,13 +9,13 @@
 #SBATCH --mail-user=carl.hutter@usda.gov
 #SBATCH -t 168:00:00
 #SBATCH -e "stderr.%j.%N"
-#SBATCH -D /project/nadc_iav/carl.hutter/Flumina_test/Flumina
+#SBATCH -D /Flumina_test/Flumina
 
 date
 
 module load miniconda/4.12.0
 
-source activate /project/nadc_iav/carl.hutter/conda/Flumina
+source activate /carl.hutter/conda/Flumina
 
 bash Flumina config.cfg
 
