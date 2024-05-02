@@ -124,9 +124,9 @@ sample metadata
 
 curated amino acid database
 
-Running pipeline 
+## Running pipeline 
 
-After setting up the file rename configuration file 
+After creating the file rename and other configuration files, including optional metadata, and moving them to your work directory with the Flumina scripts, you can run Flumina with this command:
 
 ```bash
 bash Flumina config.cfg
