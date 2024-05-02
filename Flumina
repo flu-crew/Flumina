@@ -1,0 +1,69 @@
+#!/bin/bash
+
+date
+
+# Check if a configuration file was provided
+if [ -z "$1" ]; then
+  echo "Usage: $0 path_to_config_file needed."
+  exit 1
+fi
+
+CONFIG_FILE="$1"
+
+# Check if the configuration file exists
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "Error: Configuration file not found at $CONFIG_FILE"
+  exit 1
+fi
+
+# Source the configuration file
+source "$CONFIG_FILE"
+
+echo "Configuration file successfully loaded"
+
+echo "Beginning read organization ... "
+
+Rscript Scripts/organizeReads.R "$CONFIG_FILE"
+
+echo "Beginning reference creation ... "
+
+#Sets custom snakemake parameters
+if [ "$FORCE_UNLOCK" = "TRUE" ]; then
+    NOLOCK="--nolock"
+else
+    NOLOCK=""
+fi
+
+if [ "$CLUSTER_JOBS" != "FALSE" ]; then
+    CLUSTER="--cluster \"$CLUSTER_JOBS\""
+else
+    CLUSTER=""
+fi
+
+
+export CLUSTER_JOBS
+
+#Runs make the reference snakemake function
+snakemake --snakefile Scripts/snakefile_make-reference.smk -j $THREADS $NOLOCK
+
+#Runs SNV calling pipeline
+
+echo "Beginning SNV calling pipeline ... "
+
+if [ "$CLUSTER_JOBS" != "FALSE" ]; then
+    snakemake --snakefile Scripts/snakefile_process_SNPs.smk -j $THREADS $NOLOCK --cluster "$CLUSTER_JOBS"
+else
+    snakemake --snakefile Scripts/snakefile_process_SNPs.smk -j $THREADS $NOLOCK
+fi
+
+Rscript Scripts/organizeIRMA.R "$CONFIG_FILE"
+
+Rscript Scripts/convertVCFtoTable.R "$CONFIG_FILE"
+
+Rscript Scripts/findAAChanges.R "$CONFIG_FILE"
+
+Rscript Scripts/outputSummary.R "$CONFIG_FILE"
+
+
+date
+# End of file
