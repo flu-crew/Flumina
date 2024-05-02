@@ -12,6 +12,7 @@ The pipeline accomplishes the following:
 7) Summarizes variant calling data
 8) Link variants to curated amino acids of interest
 
+Flumina uses SnakeMake for program execution and cluster job submission management. With multi-job cluster management, analyzing many samples in bulk can be accomplished quite rapidly. The speed will increase as more threads are available, as individual pieces of the pipeline can be run in tandem. 
 
 # Quick installation instructions
 
@@ -49,6 +50,8 @@ conda env create -f environment.yaml -p /PATH/TO/Flumina
 conda activate /PATH/TO/Flumina
 ```
 
+You should only need to activate the environment if running locally. On a cluster, the conda activate line should be placed in your job script. 
+
 
 # Using Flumina
 
@@ -75,6 +78,7 @@ In this example, the "Sample" Column would be:
 >
 
 An example is provided in the main repo (file_rename_example.csv)
+
 
 ## Setting up configuration file
 
@@ -116,9 +120,22 @@ CLUSTER_JOBS=FALSE
 
 ## Optional metadata and other files
 
-details coming soon.
+### irma_config.sh
 
-irma_config.sh
+irma_config.sh, is a configuration file with an example provided here for the program IRMA. Any of the standard IRMA parameters can be changed here and included in your working directory. The 3 essential parameters are provided as an example:
+
+```bash
+
+TMP=/Flumina_test/Flumina/irma_tmp
+SINGLE_LOCAL_PROC=4
+DOUBLE_LOCAL_PROC=2
+
+```
+
+- TMP is the temporary directory IRMA uses. This is key to set on a cluster as otherwise IRMA will place the temporary files elsewhere and slow the analysis down. 
+- SINGLE_LOCAL_PROC and DOUBLE_LOCAL_PROC are the number of threads to use, 
+
+<img width="1321" alt="CleanShot 2024-05-02 at 13 20 36@2x" src="https://github.com/flu-crew/Flumina/assets/11800695/1baae995-9687-450a-830e-a8b24c531eee">
 
 sample metadata
 
