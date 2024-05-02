@@ -127,14 +127,11 @@ irma_config.sh, is a configuration file with an example provided here for the pr
 ```bash
 
 TMP=/Flumina_test/Flumina/irma_tmp
-SINGLE_LOCAL_PROC=4
-DOUBLE_LOCAL_PROC=2
+SINGLE_LOCAL_PROC=2
+DOUBLE_LOCAL_PROC=1
 
 ```
-
-- TMP is the temporary directory IRMA uses. This is key to set on a cluster as otherwise IRMA will place the temporary files elsewhere and slow the analysis down. 
-- SINGLE_LOCAL_PROC and DOUBLE_LOCAL_PROC are the number of threads to use, 
-
+From IRMA documentation:
 <img width="1321" alt="CleanShot 2024-05-02 at 13 20 36@2x" src="https://github.com/flu-crew/Flumina/assets/11800695/1baae995-9687-450a-830e-a8b24c531eee">
 
 sample metadata
