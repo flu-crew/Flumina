@@ -118,13 +118,13 @@ CLUSTER_JOBS=FALSE
 
 details coming soon.
 
-### irma_config.sh
+irma_config.sh
 
-### sample metadata
+sample metadata
 
-### curated amino acid database
+curated amino acid database
 
-## Running pipeline 
+Running pipeline 
 
 After setting up the file rename configuration file 
 
