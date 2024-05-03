@@ -2,9 +2,6 @@
 
 A pipeline for processing and calling high-frequency and low-frequency variants from Illumina sequence data for Influenza viruses
 
-<img width="300" alt="CleanShot 2024-05-02 at 14 08 57@2x" src="https://github.com/flu-crew/Flumina/assets/11800695/aa25b1e8-13cc-402b-a82b-78fdfdd213e6">
-
-
 The pipeline accomplishes the following:
 
 1) Organize raw read data
