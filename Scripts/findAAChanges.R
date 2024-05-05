@@ -12,6 +12,7 @@
 #Takes 5 minutes to run on 500 samples
 
 args = commandArgs(trailingOnly = TRUE)
+#args = "config.cfg"
 
 #args = "config.cfg"
 # Function to read and parse configuration file
@@ -33,17 +34,14 @@ for (line in lines) {
 
 #Define these
 
-#Main working directory
-work.directory = getwd()
-
 # output.directory used from 1_convertVCFtoTable.R
-output.directory = "variant_analysis"
+output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_analysis")
 
 # file name (or path if moved) of the table from 1_convertVCFtoTable.R
-vcftable.path = "variant-table.csv"
+vcftable.path = paste0(output.directory, "/variant-table.csv")
 
 #Single reference used for variant calling, full path if not in working directory
-reference.path = "reference.fa"
+reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY),"/reference.fa")
 
 #Optional for merging metadata with AA data, set to NULL if none available
 metadata.file = gsub("\"", "", config$METADATA)
@@ -57,13 +55,12 @@ threads = as.numeric(gsub("\"", "", config$THREADS))
 #############################################
 
 #Sets working directory and creates output
-setwd(work.directory)
-dir.create(paste0(work.directory, "/", output.directory, "/aa_db"))
+dir.create(paste0(output.directory, "/aa_db"))
 require(foreach)
 
 #Get multifile databases together
 reference = Biostrings::readDNAStringSet(reference.path, format = "fasta")
-vcf.data = read.csv(paste0(output.directory, "/", vcftable.path), header = T)
+vcf.data = read.csv(vcftable.path, header = T)
 sample.names = unique(vcf.data$sample)
 
 # Sets up multiprocessing

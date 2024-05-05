@@ -4,6 +4,7 @@
 #Takes seconds to run on 500 samples
 
 args = commandArgs(trailingOnly = TRUE)
+#args = "config.cfg"
 
 # Function to read and parse configuration file
 lines <- readLines(args)
@@ -24,28 +25,20 @@ for (line in lines) {
 
 #Define these
 
-#Main working directory
-work.directory = getwd()
-
 # curated csv database with the columns "Gene", "Amino_Acid", and "Type" (category of site) of interest
 # Other columns can be added and joined with the variants
 aa.table.path = gsub("\"", "", config$AA_DB)
 
 # output.directory used from 1_convertVCFtoTable.R
-output.directory = "variant_analysis"
+output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_analysis")
 
 #Grouping category column name joined in step 2 with the variant sample data
 #Set to NULL if there are no groupings to use
 group.names = gsub("\"", "", config$GROUP_NAMES)
 
-
-
 #############################################
 #### Should not need to modify below here
 #############################################
-
-#sets working directory 
-setwd(work.directory)
 
 #read in previous database
 sample.data = read.table(paste0(output.directory, "/all_sample_amino_acids.txt"), sep = "\t", header = T)
@@ -125,7 +118,8 @@ for (i in 1:length(group.values)){
                             no_animal = as.numeric(),
                             ave_alle_freq = as.numeric(),
                             consensus = as.numeric(),
-                            low_freq = as.numeric())
+                            low_freq = as.numeric(),
+                            gatk4 = as.numeric())
     
     #Loops through positions
     for (k in 1:length(aa.pos)){
@@ -139,10 +133,13 @@ for (i in 1:length(group.values)){
                                 no_animal = as.numeric(),
                                 ave_alle_freq = as.numeric(),
                                 consensus = as.numeric(),
-                                low_freq = as.numeric())
+                                low_freq = as.numeric(),
+                                gatk4 = as.numeric())
       
       #Subsets to amino acid data
       aa.data = gene.data[gene.data$aa_position == aa.pos[k],]
+      lf.data = aa.data[aa.data$method %in% "LoFreq",]
+      gk.data = aa.data[aa.data$method %in% "GATK4",]
       
       ##### Groupings categories
       vector.table[1,1] = group.values[i]
@@ -162,15 +159,18 @@ for (i in 1:length(group.values)){
       vector.table[1,6] = length(unique(aa.data$sample))
       
       #mean allele frequency
-      vector.table[1,7] = round(mean(aa.data$allele_frequency), 3)
+      vector.table[1,7] = round(mean(lf.data$allele_frequency), 3)
       
       #gets those in consensus
       freq.aa = aa.data[aa.data$allele_frequency > 0.50,]
       vector.table[1,8] = length(unique(freq.aa$sample))
       
       #gets those in low frequency
-      freq.aa = aa.data[aa.data$allele_frequency < 0.50,]
+      freq.aa = lf.data[lf.data$allele_frequency < 0.50,]
       vector.table[1,9] = length(unique(freq.aa$sample))
+      
+      #gets those in gatk4
+      vector.table[1,10] = length(unique(gk.data$sample))
       
       #combines togther
       temp.table = rbind(temp.table, vector.table)

@@ -25,11 +25,10 @@ for (line in lines) {
 read.directory = gsub("\"", "", config$READ_DIRECTORY)
 rename.file = gsub("\"", "", config$RENAME_FILE)
 overwrite = is.logical(gsub("\"", "", config$OVERWRITE))
-
+output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/organized-reads")
 
 ### Script start
-
-output.directory = "organized-reads"
+#######################3
 
 #Quick checks
 options(stringsAsFactors = FALSE)

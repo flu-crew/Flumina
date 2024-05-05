@@ -22,8 +22,8 @@ for (line in lines) {
 
 #Define these
 overwrite = is.logical(gsub("\"", "", config$OVERWRITE))
-irma.directory = "IRMA_results"
-output.directory = "IRMA-consensus-contigs"
+irma.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA_results")
+output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA-consensus-contigs")
 
 
 #Quick checks

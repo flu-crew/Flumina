@@ -21,6 +21,8 @@ source "$CONFIG_FILE"
 
 echo "Configuration file successfully loaded"
 
+mkdir "$OUTPUT_DIRECTORY"
+
 echo "Beginning read organization ... "
 
 Rscript Scripts/organizeReads.R "$CONFIG_FILE"
@@ -40,20 +42,22 @@ else
     CLUSTER=""
 fi
 
+cp "$REFERENCE_FILE" "$OUTPUT_DIRECTORY"
+
 
 export CLUSTER_JOBS
 
 #Runs make the reference snakemake function
-snakemake --snakefile Scripts/snakefile_make-reference.smk -j $THREADS $NOLOCK
+snakemake --snakefile Scripts/snakefile_make-reference.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK
 
 #Runs SNV calling pipeline
 
 echo "Beginning SNV calling pipeline ... "
 
 if [ "$CLUSTER_JOBS" != "FALSE" ]; then
-    snakemake --snakefile Scripts/snakefile_process_SNPs.smk -j $THREADS $NOLOCK --cluster "$CLUSTER_JOBS"
+    snakemake --snakefile Scripts/snakefile_process_SNPs.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK --cluster "$CLUSTER_JOBS"
 else
-    snakemake --snakefile Scripts/snakefile_process_SNPs.smk -j $THREADS $NOLOCK
+    snakemake --snakefile Scripts/snakefile_process_SNPs.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK
 fi
 
 Rscript Scripts/organizeIRMA.R "$CONFIG_FILE"
