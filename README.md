@@ -12,6 +12,7 @@ The pipeline accomplishes the following:
 7) Summarizes variant calling data
 8) Link variants to curated amino acids of interest
 
+Flumina uses SnakeMake for program execution and cluster job submission management. With multi-job cluster management, analyzing many samples in bulk can be accomplished quite rapidly. The speed will increase as more threads are available, as individual pieces of the pipeline can be run in tandem. 
 
 # Quick installation instructions
 
@@ -49,6 +50,8 @@ conda env create -f environment.yaml -p /PATH/TO/Flumina
 conda activate /PATH/TO/Flumina
 ```
 
+You should only need to activate the environment if running locally. On a cluster, the conda activate line should be placed in your job script. 
+
 
 # Using Flumina
 
@@ -75,6 +78,7 @@ In this example, the "Sample" Column would be:
 >
 
 An example is provided in the main repo (file_rename_example.csv)
+
 
 ## Setting up configuration file
 
@@ -114,25 +118,53 @@ CLUSTER_JOBS=FALSE
 
 ```
 
+## Setting up a reference
+
+A reference sequence is needed to map the reads and compare amino acid changes to. This reference should have each gene as a separate entry in the fasta file, with the header including only the gene name. 
+
+
 ## Optional metadata and other files
 
-details coming soon.
+### irma_config.sh
 
-irma_config.sh
+irma_config.sh, is a configuration file with an example provided here for the program IRMA. Any of the standard IRMA parameters can be changed here and included in your working directory. The 3 essential parameters are provided as an example:
 
-sample metadata
+```bash
 
-curated amino acid database
+TMP=/Flumina_test/Flumina/irma_tmp
+SINGLE_LOCAL_PROC=2
+DOUBLE_LOCAL_PROC=1
 
-Running pipeline 
+```
+From IRMA documentation:
+<img width="1321" alt="CleanShot 2024-05-02 at 13 20 36@2x" src="https://github.com/flu-crew/Flumina/assets/11800695/1baae995-9687-450a-830e-a8b24c531eee">
 
-After setting up the file rename configuration file 
+Note that SINGLE_LOCAL_PROC should match the number of threads in your job or if using multi-job cluster submission it should match "--cpus-per-task"
+
+
+### sample metadata
+
+For the METADATA parameter in the config.cfg file, a CSV of metadata to join with the amino acid data and summary data can be provided. This CSV file must have at least a column titled "Sample" [capital S] to make the join possible. 
+
+
+### curated amino acid databases
+
+Normally Flumina will output databases of all the amino acid changes and then a reduced set to those that are nonsynonymous. To create a database of known amino acids of interest, these can be matched to the full amino acid database and separated into a more manageable table. The three columns this CSV must include are 
+
+"Gene" - The Gene that matches the names of the gene used in the reference
+"Amino_Acid" - The amino acid position in the reference
+"Type" - A summary of the function of the amino acid change
+
+
+## Running Flumina 
+
+After creating the file rename and other configuration files, including optional metadata, and moving them to your work directory with the Flumina scripts, you can run Flumina with this command:
 
 ```bash
 bash Flumina config.cfg
 ```
 
-## Running pipeline with multi-job submission
+## Running Flumina with multi-job submission
 
 Normally increasing the threads will have a small impact on speed. However, here with SnakeMake multiple jobs can submitted from the script itself. For example, setting threads to 24 in the configuration file will instead allow the script to have 24 simultaenous jobs running at once doing little bits and pieces of the pipeline automatically. All that is needed is to remove "CLUSTER_JOBS=FALSE" and insert your job submission script parameters. These are at the top of the job script used for cluster submission. 
 
