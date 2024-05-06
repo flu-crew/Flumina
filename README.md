@@ -85,6 +85,9 @@ An example is provided in the main repo (file_rename_example.csv)
 Flumina uses a configuration file to keep track of the parameters and easily add new ones. They are included in an example config file in the main repo, "config.cfg"
 
 ```bash
+# The directory where output files will go
+OUTPUT_DIRECTORY="/Full/Path/to/Flumina_analysis"
+
 #The directory where your raw reads are located
 READ_DIRECTORY="/Flumina/test_dataset"
 
@@ -163,6 +166,9 @@ After creating the file rename and other configuration files, including optional
 ```bash
 bash Flumina config.cfg
 ```
+
+You will have to run Flumina from the cloned git repo, but you can specify the output directory and config.cfg file location using the full paths. 
+
 
 ## Running Flumina with multi-job submission
 
