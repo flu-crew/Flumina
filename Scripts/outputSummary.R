@@ -35,6 +35,9 @@ output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_ana
 #Grouping category column name joined in step 2 with the variant sample data
 #Set to NULL if there are no groupings to use
 group.names = gsub("\"", "", config$GROUP_NAMES)
+if(length(group.names) == 0L) {
+  group.names <- NULL
+}
 
 #############################################
 #### Should not need to modify below here
