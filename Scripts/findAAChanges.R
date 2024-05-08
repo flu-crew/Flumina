@@ -45,6 +45,9 @@ reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY),"/reference.fa")
 
 #Optional for merging metadata with AA data, set to NULL if none available
 metadata.file = gsub("\"", "", config$METADATA)
+if(length(metadata.file) == 0L) {
+  metadata.file <- NULL
+}
 
 #Set multithreading and memory usage
 threads = as.numeric(gsub("\"", "", config$THREADS))
