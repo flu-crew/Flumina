@@ -22,7 +22,8 @@ rule all:
         expand("vcf_files/{sample}/gatk4-unfiltered-snps.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-unfiltered-indels.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-filtered-snps.vcf", sample = sample_names),
-        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names)
+        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names),
+        expand("IRMA_results/{sample}/", sample = sample_names)
 
         
 #Process reads with fastp
@@ -44,6 +45,17 @@ rule fastp_process:
         " --html logs/fastp-{wildcards.sample}.html --json logs/fastp-{wildcards.sample}.json --compression 8"
         " report_title {wildcards.sample}"
 
+#Converts fastq to sam/bam
+rule run_irma:
+    input:
+        R1="processed-reads/{sample}/{sample}_R1.fastq.gz",
+        R2="processed-reads/{sample}/{sample}_R2.fastq.gz"
+    params:
+        cluster=CLUSTER_JOBS
+    output:
+        directory("IRMA_results/{sample}/")     
+    shell:
+        "IRMA FLU {input.R1} {input.R2} {output}"
 
 #Converts fastq to sam/bam
 rule fastq_to_sam:

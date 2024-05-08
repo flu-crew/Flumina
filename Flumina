@@ -42,9 +42,17 @@ else
     CLUSTER=""
 fi
 
+#Sets the snakefile to use when disabling IRMA
+if [ "$DISABLE_IRMA" == "TRUE" ]; then
+    IRMA_RUN="Scripts/snakefile_process_SNPs.smk"
+else
+    IRMA_RUN="Scripts/snakefile_process_IRMA_SNPs.smk"
+fi
+
+#Copies reference to output directory so snakefile can find it
 cp "$REFERENCE_FILE" "$OUTPUT_DIRECTORY"
 
-
+#Export variable to global env
 export CLUSTER_JOBS
 
 #Runs make the reference snakemake function
@@ -55,12 +63,15 @@ snakemake --snakefile Scripts/snakefile_make-reference.smk --directory "$OUTPUT_
 echo "Beginning SNV calling pipeline ... "
 
 if [ "$CLUSTER_JOBS" != "FALSE" ]; then
-    snakemake --snakefile Scripts/snakefile_process_SNPs.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK --cluster "$CLUSTER_JOBS"
+    snakemake --snakefile $IRMA_RUN --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK --cluster "$CLUSTER_JOBS"
 else
-    snakemake --snakefile Scripts/snakefile_process_SNPs.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK
+    snakemake --snakefile $IRMA_RUN --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK
 fi
 
-Rscript Scripts/organizeIRMA.R "$CONFIG_FILE"
+#Organizes IRMA only when not disabled
+if [ "$DISABLE_IRMA" == "FALSE" ]; then
+    Rscript Scripts/organizeIRMA.R "$CONFIG_FILE"
+fi
 
 Rscript Scripts/convertVCFtoTable.R "$CONFIG_FILE"
 
