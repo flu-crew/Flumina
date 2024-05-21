@@ -50,7 +50,7 @@ else
 fi
 
 #Copies reference to output directory so snakefile can find it
-cp "$REFERENCE_FILE" "$OUTPUT_DIRECTORY"
+cp "$REFERENCE_FILE" "$OUTPUT_DIRECTORY"/reference.fa
 
 #Export variable to global env
 export CLUSTER_JOBS
