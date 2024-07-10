@@ -39,6 +39,11 @@ if(length(group.names) == 0L) {
   group.names <- NULL
 }
 
+# output.directory = "/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/variant_analysis"
+# aa.table.path = paste0("/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/curated_database.csv")
+# threads = 4
+# group.names = NULL
+
 #############################################
 #### Should not need to modify below here
 #############################################
@@ -191,7 +196,7 @@ for (i in 1:length(group.values)){
 }# i loop
 
 #Saves final data
-write.table(all.data, paste0(output.directory, "/animal_summary_curated_sites.txt"),
+write.table(all.data, paste0(output.directory, "/summary_curated_sites.txt"),
             row.names = F, quote = F, sep = "\t")
 
 

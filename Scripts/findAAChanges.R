@@ -52,6 +52,11 @@ if(length(metadata.file) == 0L) {
 #Set multithreading and memory usage
 threads = as.numeric(gsub("\"", "", config$THREADS))
 
+# output.directory = "/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/variant_analysis"
+# vcftable.path = paste0(output.directory, "/variant-table.csv")
+# reference.path = paste0("/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/Reference/reference.fa")
+# threads = 4
+# metadata.file = NULL
 
 #############################################
 #### Should not need to modify below here
