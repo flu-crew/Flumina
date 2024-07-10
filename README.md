@@ -1,4 +1,5 @@
 # Flumina
+[![DOI](https://zenodo.org/badge/794667242.svg)](https://zenodo.org/doi/10.5281/zenodo.12708893)
 
 A pipeline for processing and calling high-frequency and low-frequency variants from Illumina sequence data for Influenza viruses
 
