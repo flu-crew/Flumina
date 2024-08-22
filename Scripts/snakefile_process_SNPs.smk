@@ -22,7 +22,7 @@ rule all:
         expand("vcf_files/{sample}/gatk4-unfiltered-snps.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-unfiltered-indels.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-filtered-snps.vcf", sample = sample_names),
-        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names)
+        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names),
         expand("vcf_files/{sample}/freebayes-called-variants.vcf", sample = sample_names)
         
 #Process reads with fastp
