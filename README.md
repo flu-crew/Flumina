@@ -1,4 +1,5 @@
 # Flumina
+[![DOI](https://zenodo.org/badge/794667242.svg)](https://zenodo.org/doi/10.5281/zenodo.12708893)
 
 A pipeline for processing and calling high-frequency and low-frequency variants from Illumina sequence data for Influenza viruses
 
@@ -106,6 +107,9 @@ METADATA="/Flumina/example_metadata.csv"
 #Group column name from metadata to summarize and group data i.e. cow versus birds versus poultry
 GROUP_NAMES="discrete_host"
 
+#Whether to enable or disable IRMA
+DISABLE_IRMA=TRUE
+
 #Whether to overwrite or not
 OVERWRITE=FALSE
 
@@ -123,7 +127,7 @@ CLUSTER_JOBS=FALSE
 
 ## Setting up a reference
 
-A reference sequence is needed to map the reads and compare amino acid changes to. This reference should have each gene as a separate entry in the fasta file, with the header including only the gene name. 
+A reference sequence is needed to map the reads and compare amino acid changes to. This reference should have each gene as a separate entry in the fasta file, with the header including only the gene name. For now, multiple CDS reading frames should be included as separate fasta entries. There is no standard reference as the reference would depend on the research question. 
 
 
 ## Optional metadata and other files
@@ -141,6 +145,8 @@ DOUBLE_LOCAL_PROC=1
 ```
 From IRMA documentation:
 <img width="1321" alt="CleanShot 2024-05-02 at 13 20 36@2x" src="https://github.com/flu-crew/Flumina/assets/11800695/1baae995-9687-450a-830e-a8b24c531eee">
+
+TMP is the temporary directory that IRMA writes files, and it will use a sometimes unwritable or slow location, so setting this somewhere you can write to and has enough space helps.  
 
 Note that SINGLE_LOCAL_PROC should match the number of threads in your job or if using multi-job cluster submission it should match "--cpus-per-task"
 
@@ -161,10 +167,18 @@ Normally Flumina will output databases of all the amino acid changes and then a 
 
 ## Running Flumina 
 
-After creating the file rename and other configuration files, including optional metadata, and moving them to your work directory with the Flumina scripts, you can run Flumina with this command:
+After creating the file rename and other configuration files, including optional metadata, and moving them to your work directory with the Flumina scripts, you can run Flumina as follows:
+
+Change directory to the downloaded git repository:
 
 ```bash
-bash Flumina config.cfg
+cd /PATH/TO/Flumina
+```
+
+And run Flumina with bash, and the path to your configuration file:
+
+```bash
+bash Flumina /PATH/TO/config.cfg
 ```
 
 You will have to run Flumina from the cloned git repo, but you can specify the output directory and config.cfg file location using the full paths. 
