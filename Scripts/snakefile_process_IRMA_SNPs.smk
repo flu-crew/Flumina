@@ -24,6 +24,7 @@ rule all:
         expand("vcf_files/{sample}/gatk4-filtered-snps.vcf", sample = sample_names),
         expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names),
         expand("IRMA_results/{sample}/", sample = sample_names)
+        expand("vcf_files/{sample}/freebayes-called-variants.vcf", sample = sample_names)
 
         
 #Process reads with fastp
@@ -251,3 +252,16 @@ rule run_loFreq:
     shell:
         "lofreq call -f {input.reference}"
         " -o {output} {input.reads}"
+
+# Runs LoFreq for low frequency variants 
+rule run_FreeBayes:
+    input:
+        reads="BAM_files/{sample}/final_mapped_reads.bam",
+        reference="Reference/reference.fa"
+    params:
+        cluster=CLUSTER_JOBS
+    output:
+        "vcf_files/{sample}/freebayes-called-variants.vcf"
+    shell:
+        "freebayes -f {input.reference} --ploidy 1 {input.reads} > {output}"
+
