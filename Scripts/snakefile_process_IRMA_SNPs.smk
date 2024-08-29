@@ -254,14 +254,14 @@ rule run_loFreq:
         " -o {output} {input.reads}"
 
 # Runs LoFreq for low frequency variants 
-rule run_FreeBayes:
-    input:
-        reads="BAM_files/{sample}/final_mapped_reads.bam",
-        reference="Reference/reference.fa"
-    params:
-        cluster=CLUSTER_JOBS
-    output:
-        "vcf_files/{sample}/freebayes-called-variants.vcf"
-    shell:
-        "freebayes -f {input.reference} --ploidy 1 {input.reads} > {output}"
+#rule run_FreeBayes:
+#    input:
+#        reads="BAM_files/{sample}/final_mapped_reads.bam",
+#        reference="Reference/reference.fa"
+#    params:
+#        cluster=CLUSTER_JOBS
+#    output:
+#        "vcf_files/{sample}/freebayes-called-variants.vcf"
+#    shell:
+#        "freebayes -f {input.reference} --ploidy 1 {input.reads} > {output}"
 
