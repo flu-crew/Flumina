@@ -54,6 +54,7 @@ cp "$REFERENCE_FILE" "$OUTPUT_DIRECTORY"/reference.fa
 
 #Export variable to global env
 export CLUSTER_JOBS
+export TEMPDIR
 
 #Runs make the reference snakemake function
 snakemake --snakefile Scripts/snakefile_make-reference.smk --directory "$OUTPUT_DIRECTORY" -j $THREADS $NOLOCK

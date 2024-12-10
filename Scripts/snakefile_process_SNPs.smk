@@ -2,6 +2,8 @@
 sample_names = [d for d in os.listdir("organized-reads") if os.path.isdir(os.path.join("organized-reads", d))]
 print(sample_names)
 
+TEMPDIR = os.getenv('TEMPDIR', 'FALSE')
+
 CLUSTER_JOBS = os.getenv('CLUSTER_JOBS', 'FALSE')
 
 rule all:
@@ -22,8 +24,7 @@ rule all:
         expand("vcf_files/{sample}/gatk4-unfiltered-snps.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-unfiltered-indels.vcf", sample = sample_names),
         expand("vcf_files/{sample}/gatk4-filtered-snps.vcf", sample = sample_names),
-        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names),
-        expand("vcf_files/{sample}/freebayes-called-variants.vcf", sample = sample_names)
+        expand("vcf_files/{sample}/lofreq-called-variants.vcf", sample = sample_names)
         
 #Process reads with fastp
 rule fastp_process:
@@ -52,7 +53,7 @@ rule fastq_to_sam:
     output:
         "BAM_files/{sample}/fastqsam.bam"     
     shell:
-        "gatk FastqToSam -FASTQ {input.R1} -FASTQ2 {input.R2}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' FastqToSam -FASTQ {input.R1} -FASTQ2 {input.R2}"
         " -OUTPUT {output} -SAMPLE_NAME {wildcards.sample}"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true"
 
@@ -63,7 +64,7 @@ rule revert_sam:
     output:
         "BAM_files/{sample}/revertsam.bam"     
     shell:
-        "gatk RevertSam -I {input} -O {output}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' RevertSam -I {input} -O {output}"
         " -SANITIZE true -MAX_DISCARD_FRACTION 0.005"
         " -ATTRIBUTE_TO_CLEAR XT -ATTRIBUTE_TO_CLEAR XN -ATTRIBUTE_TO_CLEAR AS"
         " -ATTRIBUTE_TO_CLEAR OP -SORT_ORDER queryname"
@@ -78,7 +79,7 @@ rule replace_read_group:
     output:
         "BAM_files/{sample}/all_reads.bam"     
     shell:
-        "gatk AddOrReplaceReadGroups -I {input} -O {output}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' AddOrReplaceReadGroups -I {input} -O {output}"
         " -RGSM {wildcards.sample} -RGPU FLOWCELL1.LANE1 -RGID FLOWCELL1.LANE1"
         " -RGLB LIB-{wildcards.sample} -RGPL ILLUMINA"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true"
@@ -93,11 +94,11 @@ rule bwa_map:
     output:
         "BAM_files/{sample}/mapped_reads_all.bam"     
     shell:
-        "gatk SamToFastq -I {input.reads} -FASTQ /dev/stdout"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SamToFastq -I {input.reads} -FASTQ /dev/stdout"
         " -CLIPPING_ATTRIBUTE XT -CLIPPING_ACTION 2 -INTERLEAVE true -NON_PF true"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true |"
         " bwa mem -M -p {input.reference} /dev/stdin |"
-        " gatk MergeBamAlignment -ALIGNED_BAM /dev/stdin -UNMAPPED_BAM {input.reads}"
+        " gatk --java-options '-Djava.io.tmpdir=TEMPDIR' MergeBamAlignment -ALIGNED_BAM /dev/stdin -UNMAPPED_BAM {input.reads}"
         " -OUTPUT {output} -R {input.reference} -CREATE_INDEX true -ADD_MATE_CIGAR true"
         " -CLIP_ADAPTERS false -CLIP_OVERLAPPING_READS true -INCLUDE_SECONDARY_ALIGNMENTS true"
         " -MAX_INSERTIONS_OR_DELETIONS -1 -PRIMARY_ALIGNMENT_STRATEGY MostDistant -ATTRIBUTES_TO_RETAIN XS"
@@ -110,7 +111,7 @@ rule sort_bam:
     output:
         "BAM_files/{sample}/mapped_reads_sort.bam"     
     shell:
-        "gatk SortSam -INPUT {input} -OUTPUT {output}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SortSam -INPUT {input} -OUTPUT {output}"
         " -CREATE_INDEX true -SORT_ORDER coordinate"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true"
 
@@ -123,7 +124,7 @@ rule mark_duplicates:
         reads="BAM_files/{sample}/mapped_reads_md.bam",
         metrics="logs/{sample}/duplicate_metrics.txt"      
     shell:
-        "gatk MarkDuplicates -INPUT {input} -OUTPUT {output.reads}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' MarkDuplicates -INPUT {input} -OUTPUT {output.reads}"
         " -CREATE_INDEX true -METRICS_FILE {output.metrics}"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true"
 
@@ -135,9 +136,9 @@ rule set_tags:
     output:
         "BAM_files/{sample}/final_mapped_reads.bam"
     shell:
-        "gatk SortSam -INPUT {input.reads}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SortSam -INPUT {input.reads}"
         " -OUTPUT /dev/stdout -SORT_ORDER coordinate |"
-        " gatk SetNmAndUqTags -INPUT /dev/stdin -OUTPUT {output}"
+        " gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SetNmAndUqTags -INPUT /dev/stdin -OUTPUT {output}"
         " -CREATE_INDEX true -R {input.reference}"
         " -USE_JDK_DEFLATER true -USE_JDK_INFLATER true"
 
@@ -152,7 +153,7 @@ rule haplotype_caller:
         bam="BAM_files/{sample}/haplotype_caller.bam",
         vcf="vcf_files/{sample}/gatk4-haplotype-caller.vcf"
     shell:
-        "gatk HaplotypeCaller -I {input.reads}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' HaplotypeCaller -I {input.reads}"
         " -R {input.reference} -O {output.vcf}"
         " -ERC GVCF -ploidy 1"
         " -bamout {output.bam}"
@@ -165,7 +166,7 @@ rule genotyping:
     output:
         "vcf_files/{sample}/gatk4-unfiltered-genotypes.vcf"
     shell:
-        "gatk GenotypeGVCFs -V {input.vcf}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' GenotypeGVCFs -V {input.vcf}"
         " -R {input.reference} -O {output}"
         " --use-new-qual-calculator true"
 
@@ -176,7 +177,7 @@ rule select_SNP:
     output:
         "vcf_files/{sample}/gatk4-unfiltered-snps.vcf"
     shell:
-        "gatk SelectVariants -V {input}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SelectVariants -V {input}"
         " -O {output} --select-type SNP"
 
 # Selects only the INDELS from the VCF
@@ -186,7 +187,7 @@ rule select_INDEL:
     output:
         "vcf_files/{sample}/gatk4-unfiltered-indels.vcf"
     shell:
-        "gatk SelectVariants -V {input}"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' SelectVariants -V {input}"
         " -O {output} --select-type INDEL"
 
 # Selects only the SNPs from the VCF
@@ -197,7 +198,7 @@ rule filter_SNP:
     output:
         "vcf_files/{sample}/gatk4-filtered-snps.vcf"
     shell:
-        "gatk VariantFiltration"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' VariantFiltration"
         " -R {input.reference}" 
         " -V {input.vcf}"
         " -O {output}"
@@ -218,7 +219,7 @@ rule filter_INDEL:
     output:
         "vcf_files/{sample}/gatk4-filtered-indels.vcf"
     shell:
-        "gatk VariantFiltration"
+        "gatk --java-options '-Djava.io.tmpdir=TEMPDIR' VariantFiltration"
         " -R {input.reference}" 
         " -V {input.vcf}"
         " -O {output}"

@@ -1,0 +1,91 @@
+Building DAG of jobs...
+Using shell: /bin/bash
+Provided cores: 6
+Rules claiming more threads will be scaled down.
+Job stats:
+job                count
+---------------  -------
+all                    1
+bwa_index              1
+dict_copy              1
+gatk_dictionary        1
+reference_copy         1
+samtools_faidx         1
+total                  6
+
+Select jobs to execute...
+
+[Tue Dec 10 15:24:47 2024]
+rule reference_copy:
+    input: reference.fa
+    output: Reference/reference.fa
+    jobid: 1
+    reason: Missing output files: Reference/reference.fa
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:24:47 2024]
+Finished job 1.
+1 of 6 steps (17%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:24:47 2024]
+rule gatk_dictionary:
+    input: Reference/reference.fa
+    output: Reference/reference.dict
+    jobid: 2
+    reason: Missing output files: Reference/reference.dict; Input files updated by another job: Reference/reference.fa
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:24:47 2024]
+rule bwa_index:
+    input: Reference/reference.fa
+    output: Reference/reference.fa.amb, Reference/reference.fa.ann, Reference/reference.fa.bwt, Reference/reference.fa.pac, Reference/reference.fa.sa
+    jobid: 4
+    reason: Missing output files: Reference/reference.fa.amb, Reference/reference.fa.pac, Reference/reference.fa.ann, Reference/reference.fa.bwt, Reference/reference.fa.sa; Input files updated by another job: Reference/reference.fa
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:24:47 2024]
+rule samtools_faidx:
+    input: Reference/reference.fa
+    output: Reference/reference.fa.fai
+    jobid: 5
+    reason: Missing output files: Reference/reference.fa.fai; Input files updated by another job: Reference/reference.fa
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:24:47 2024]
+Finished job 4.
+2 of 6 steps (33%) done
+[Tue Dec 10 15:24:47 2024]
+Finished job 5.
+3 of 6 steps (50%) done
+[Tue Dec 10 15:24:50 2024]
+Finished job 2.
+4 of 6 steps (67%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:24:50 2024]
+rule dict_copy:
+    input: Reference/reference.dict
+    output: Reference/reference.fa.dict
+    jobid: 3
+    reason: Missing output files: Reference/reference.fa.dict; Input files updated by another job: Reference/reference.dict
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:24:50 2024]
+Finished job 3.
+5 of 6 steps (83%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:24:50 2024]
+localrule all:
+    input: Reference/reference.fa, Reference/reference.dict, Reference/reference.fa.dict, Reference/reference.fa.amb, Reference/reference.fa.ann, Reference/reference.fa.bwt, Reference/reference.fa.pac, Reference/reference.fa.sa, Reference/reference.fa.fai
+    jobid: 0
+    reason: Input files updated by another job: Reference/reference.fa.amb, Reference/reference.fa.dict, Reference/reference.dict, Reference/reference.fa.pac, Reference/reference.fa.ann, Reference/reference.fa.fai, Reference/reference.fa.bwt, Reference/reference.fa, Reference/reference.fa.sa
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:24:50 2024]
+Finished job 0.
+6 of 6 steps (100%) done
+Complete log: .snakemake/log/2024-12-10T152446.911012.snakemake.log

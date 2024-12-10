@@ -1,0 +1,567 @@
+Building DAG of jobs...
+Using shell: /bin/bash
+Provided cores: 6
+Rules claiming more threads will be scaled down.
+Job stats:
+job                   count
+------------------  -------
+all                       1
+bwa_map                   4
+fastp_process             4
+fastq_to_sam              4
+filter_SNP                4
+genotyping                4
+haplotype_caller          4
+mark_duplicates           4
+replace_read_group        4
+revert_sam                4
+run_loFreq                4
+select_INDEL              4
+select_SNP                4
+set_tags                  4
+sort_bam                  4
+total                    57
+
+Select jobs to execute...
+
+[Tue Dec 10 15:24:50 2024]
+rule fastp_process:
+    input: organized-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_L001_READ1.fastq.gz, organized-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_L001_READ2.fastq.gz
+    output: processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz
+    jobid: 2
+    reason: Missing output files: processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:24:50 2024]
+rule fastp_process:
+    input: organized-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_L001_READ1.fastq.gz, organized-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_L001_READ2.fastq.gz
+    output: processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    jobid: 1
+    reason: Missing output files: processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:24:50 2024]
+rule fastp_process:
+    input: organized-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_L001_READ1.fastq.gz, organized-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_L001_READ2.fastq.gz
+    output: processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz
+    jobid: 3
+    reason: Missing output files: processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:24:51 2024]
+rule fastp_process:
+    input: organized-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_L001_READ1.fastq.gz, organized-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_L001_READ2.fastq.gz
+    output: processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    jobid: 4
+    reason: Missing output files: processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:10 2024]
+Finished job 3.
+1 of 57 steps (2%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:10 2024]
+rule fastq_to_sam:
+    input: processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam
+    jobid: 7
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam; Input files updated by another job: processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:18 2024]
+Finished job 2.
+2 of 57 steps (4%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:18 2024]
+rule fastq_to_sam:
+    input: processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam
+    jobid: 6
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam; Input files updated by another job: processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:18 2024]
+Finished job 4.
+3 of 57 steps (5%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:18 2024]
+rule fastq_to_sam:
+    input: processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    jobid: 8
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam; Input files updated by another job: processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:18 2024]
+Finished job 1.
+4 of 57 steps (7%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:18 2024]
+rule fastq_to_sam:
+    input: processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    jobid: 5
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam; Input files updated by another job: processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:19 2024]
+Finished job 7.
+5 of 57 steps (9%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:19 2024]
+rule revert_sam:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam
+    jobid: 11
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:28 2024]
+Finished job 11.
+6 of 57 steps (11%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:28 2024]
+rule replace_read_group:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam
+    jobid: 15
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:32 2024]
+Finished job 6.
+7 of 57 steps (12%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:32 2024]
+rule revert_sam:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam
+    jobid: 10
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:32 2024]
+Finished job 8.
+8 of 57 steps (14%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:32 2024]
+rule revert_sam:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam
+    jobid: 12
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:33 2024]
+Finished job 5.
+9 of 57 steps (16%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:33 2024]
+rule revert_sam:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam
+    jobid: 9
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:33 2024]
+Finished job 15.
+10 of 57 steps (18%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:33 2024]
+rule bwa_map:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam, Reference/reference.fa
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam
+    jobid: 19
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:42 2024]
+Finished job 10.
+11 of 57 steps (19%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:42 2024]
+rule replace_read_group:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam
+    jobid: 14
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:43 2024]
+Finished job 12.
+12 of 57 steps (21%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:43 2024]
+rule replace_read_group:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam
+    jobid: 16
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:43 2024]
+Finished job 9.
+13 of 57 steps (23%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:43 2024]
+rule replace_read_group:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam
+    jobid: 13
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:49 2024]
+Finished job 14.
+14 of 57 steps (25%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:49 2024]
+rule bwa_map:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam
+    jobid: 18
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:50 2024]
+Finished job 16.
+15 of 57 steps (26%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:50 2024]
+rule bwa_map:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    jobid: 20
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:25:50 2024]
+Finished job 13.
+16 of 57 steps (28%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:25:50 2024]
+rule bwa_map:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    jobid: 17
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:02 2024]
+Finished job 19.
+17 of 57 steps (30%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:02 2024]
+rule sort_bam:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam
+    jobid: 23
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:08 2024]
+Finished job 23.
+18 of 57 steps (32%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:08 2024]
+rule mark_duplicates:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam, logs/24-007264-003_CHICKEN_2024-03-07/duplicate_metrics.txt
+    jobid: 27
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam, logs/24-007264-003_CHICKEN_2024-03-07/duplicate_metrics.txt; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:17 2024]
+Finished job 27.
+19 of 57 steps (33%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:17 2024]
+rule set_tags:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam, Reference/reference.fa
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam
+    jobid: 31
+    reason: Missing output files: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:27 2024]
+Finished job 31.
+20 of 57 steps (35%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:27 2024]
+rule haplotype_caller:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam, Reference/reference.fa
+    output: BAM_files/24-007264-003_CHICKEN_2024-03-07/haplotype_caller.bam, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf
+    jobid: 35
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf, BAM_files/24-007264-003_CHICKEN_2024-03-07/haplotype_caller.bam; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:26:27 2024]
+rule run_loFreq:
+    input: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam, Reference/reference.fa
+    output: vcf_files/24-007264-003_CHICKEN_2024-03-07/lofreq-called-variants.vcf
+    jobid: 55
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/lofreq-called-variants.vcf; Input files updated by another job: BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:29 2024]
+Finished job 18.
+21 of 57 steps (37%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:29 2024]
+rule sort_bam:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam
+    jobid: 22
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:30 2024]
+Finished job 20.
+22 of 57 steps (39%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:30 2024]
+rule sort_bam:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    jobid: 24
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:30 2024]
+Finished job 17.
+23 of 57 steps (40%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:30 2024]
+rule sort_bam:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    jobid: 21
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:38 2024]
+Finished job 22.
+24 of 57 steps (42%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:38 2024]
+rule mark_duplicates:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam, logs/24-008356-003_Wild-Bird_COGR_2024-03-18/duplicate_metrics.txt
+    jobid: 26
+    reason: Missing output files: logs/24-008356-003_Wild-Bird_COGR_2024-03-18/duplicate_metrics.txt, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:40 2024]
+Finished job 24.
+25 of 57 steps (44%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:40 2024]
+rule mark_duplicates:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, logs/24-008354-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt
+    jobid: 28
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, logs/24-008354-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:41 2024]
+Finished job 21.
+26 of 57 steps (46%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:41 2024]
+rule mark_duplicates:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, logs/24-008357-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt
+    jobid: 25
+    reason: Missing output files: logs/24-008357-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:50 2024]
+Finished job 26.
+27 of 57 steps (47%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:50 2024]
+rule set_tags:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam, Reference/reference.fa
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam
+    jobid: 30
+    reason: Missing output files: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:53 2024]
+Finished job 28.
+28 of 57 steps (49%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:53 2024]
+rule set_tags:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, Reference/reference.fa
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    jobid: 32
+    reason: Missing output files: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:26:54 2024]
+Finished job 25.
+29 of 57 steps (51%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:26:54 2024]
+rule set_tags:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, Reference/reference.fa
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    jobid: 29
+    reason: Missing output files: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:27:04 2024]
+Finished job 30.
+30 of 57 steps (53%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:27:04 2024]
+rule run_loFreq:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam, Reference/reference.fa
+    output: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/lofreq-called-variants.vcf
+    jobid: 54
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/lofreq-called-variants.vcf; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 15:27:04 2024]
+rule haplotype_caller:
+    input: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/haplotype_caller.bam, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf
+    jobid: 34
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/haplotype_caller.bam; Input files updated by another job: BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:27:07 2024]
+Finished job 32.
+31 of 57 steps (54%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:27:07 2024]
+rule haplotype_caller:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf
+    jobid: 36
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/haplotype_caller.bam; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:27:07 2024]
+Finished job 29.
+32 of 57 steps (56%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:27:08 2024]
+rule haplotype_caller:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, Reference/reference.fa
+    output: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf
+    jobid: 33
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/haplotype_caller.bam; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:27:42 2024]
+Finished job 55.
+33 of 57 steps (58%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:27:42 2024]
+rule run_loFreq:
+    input: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, Reference/reference.fa
+    output: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf
+    jobid: 53
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf; Input files updated by another job: BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:28:43 2024]
+Finished job 54.
+34 of 57 steps (60%) done
+Select jobs to execute...
+
+[Tue Dec 10 15:28:43 2024]
+rule run_loFreq:
+    input: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, Reference/reference.fa
+    output: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf
+    jobid: 56
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf; Input files updated by another job: BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 15:29:24 2024]
+Finished job 53.
+35 of 57 steps (61%) done
+[Tue Dec 10 15:30:26 2024]
+Finished job 56.
+36 of 57 steps (63%) done

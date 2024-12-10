@@ -2,8 +2,6 @@
 sample_names = [d for d in os.listdir("organized-reads") if os.path.isdir(os.path.join("organized-reads", d))]
 print(sample_names)
 
-export TMPDIR=
-
 CLUSTER_JOBS = os.getenv('CLUSTER_JOBS', 'FALSE')
 
 rule all:
