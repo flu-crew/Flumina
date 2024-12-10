@@ -39,10 +39,10 @@ if(length(group.names) == 0L) {
   group.names <- NULL
 }
 
-# output.directory = "/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/variant_analysis"
-# aa.table.path = paste0("/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/curated_database.csv")
-# threads = 4
-# group.names = NULL
+#output.directory = "/Volumes/Extreme_SSD/Bailey_project/variant_analysis"
+#aa.table.path = paste0("/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/curated_database.csv")
+#threads = 4
+#group.names = NULL
 
 #############################################
 #### Should not need to modify below here

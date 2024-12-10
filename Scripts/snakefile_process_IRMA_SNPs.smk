@@ -2,6 +2,8 @@
 sample_names = [d for d in os.listdir("organized-reads") if os.path.isdir(os.path.join("organized-reads", d))]
 print(sample_names)
 
+export TMPDIR=
+
 CLUSTER_JOBS = os.getenv('CLUSTER_JOBS', 'FALSE')
 
 rule all:
@@ -252,16 +254,3 @@ rule run_loFreq:
     shell:
         "lofreq call -f {input.reference}"
         " -o {output} {input.reads}"
-
-# Runs LoFreq for low frequency variants 
-#rule run_FreeBayes:
-#    input:
-#        reads="BAM_files/{sample}/final_mapped_reads.bam",
-#        reference="Reference/reference.fa"
-#    params:
-#        cluster=CLUSTER_JOBS
-#    output:
-#        "vcf_files/{sample}/freebayes-called-variants.vcf"
-#    shell:
-#        "freebayes -f {input.reference} --ploidy 1 {input.reads} > {output}"
-

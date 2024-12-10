@@ -34,6 +34,9 @@ vcf.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/vcf_files")
 #name for the table 
 save.name = "variant-table"
 
+#output.directory = "/Volumes/Extreme_SSD/Bailey_project/variant_analysis"
+#vcf.directory = "/Volumes/Extreme_SSD/Bailey_project/vcf_files"
+
 
 #############################################
 #### Should not need to modify below here
