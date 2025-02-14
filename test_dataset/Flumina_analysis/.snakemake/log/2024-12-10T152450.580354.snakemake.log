@@ -565,3 +565,248 @@ Finished job 53.
 [Tue Dec 10 15:30:26 2024]
 Finished job 56.
 36 of 57 steps (63%) done
+[Tue Dec 10 16:25:12 2024]
+Finished job 35.
+37 of 57 steps (65%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:25:12 2024]
+rule genotyping:
+    input: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf, Reference/reference.fa
+    output: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf
+    jobid: 39
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf; Input files updated by another job: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:25:17 2024]
+Finished job 39.
+38 of 57 steps (67%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:25:17 2024]
+rule select_SNP:
+    input: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf
+    jobid: 43
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf; Input files updated by another job: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 16:25:17 2024]
+rule select_INDEL:
+    input: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-indels.vcf
+    jobid: 47
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-indels.vcf; Input files updated by another job: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:25:21 2024]
+Finished job 47.
+39 of 57 steps (68%) done
+[Tue Dec 10 16:25:21 2024]
+Finished job 43.
+40 of 57 steps (70%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:25:21 2024]
+rule filter_SNP:
+    input: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf, Reference/reference.fa
+    output: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-filtered-snps.vcf
+    jobid: 51
+    reason: Missing output files: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-filtered-snps.vcf; Input files updated by another job: vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf
+    wildcards: sample=24-007264-003_CHICKEN_2024-03-07
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:25:25 2024]
+Finished job 51.
+41 of 57 steps (72%) done
+[Tue Dec 10 16:45:59 2024]
+Finished job 34.
+42 of 57 steps (74%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:45:59 2024]
+rule genotyping:
+    input: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf, Reference/reference.fa
+    output: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf
+    jobid: 38
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf; Input files updated by another job: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:03 2024]
+Finished job 38.
+43 of 57 steps (75%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:46:03 2024]
+rule select_SNP:
+    input: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf
+    jobid: 42
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf; Input files updated by another job: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 16:46:03 2024]
+rule select_INDEL:
+    input: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-indels.vcf
+    jobid: 46
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-indels.vcf; Input files updated by another job: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:07 2024]
+Finished job 46.
+44 of 57 steps (77%) done
+[Tue Dec 10 16:46:07 2024]
+Finished job 42.
+45 of 57 steps (79%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:46:07 2024]
+rule filter_SNP:
+    input: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf, Reference/reference.fa
+    output: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-filtered-snps.vcf
+    jobid: 50
+    reason: Missing output files: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-filtered-snps.vcf; Input files updated by another job: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf
+    wildcards: sample=24-008356-003_Wild-Bird_COGR_2024-03-18
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:11 2024]
+Finished job 50.
+46 of 57 steps (81%) done
+[Tue Dec 10 16:46:29 2024]
+Finished job 36.
+47 of 57 steps (82%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:46:29 2024]
+rule genotyping:
+    input: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, Reference/reference.fa
+    output: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    jobid: 40
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf; Input files updated by another job: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:34 2024]
+Finished job 40.
+48 of 57 steps (84%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:46:34 2024]
+rule select_SNP:
+    input: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf
+    jobid: 44
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf; Input files updated by another job: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 16:46:34 2024]
+rule select_INDEL:
+    input: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf
+    jobid: 48
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf; Input files updated by another job: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:37 2024]
+Finished job 44.
+49 of 57 steps (86%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:46:37 2024]
+rule filter_SNP:
+    input: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, Reference/reference.fa
+    output: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf
+    jobid: 52
+    reason: Missing output files: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf; Input files updated by another job: vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf
+    wildcards: sample=24-008354-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:46:37 2024]
+Finished job 48.
+50 of 57 steps (88%) done
+[Tue Dec 10 16:46:41 2024]
+Finished job 52.
+51 of 57 steps (89%) done
+[Tue Dec 10 16:56:18 2024]
+Finished job 33.
+52 of 57 steps (91%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:56:18 2024]
+rule genotyping:
+    input: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, Reference/reference.fa
+    output: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    jobid: 37
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf; Input files updated by another job: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:56:22 2024]
+Finished job 37.
+53 of 57 steps (93%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:56:22 2024]
+rule select_SNP:
+    input: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf
+    jobid: 41
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf; Input files updated by another job: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+
+[Tue Dec 10 16:56:22 2024]
+rule select_INDEL:
+    input: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    output: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf
+    jobid: 45
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf; Input files updated by another job: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:56:26 2024]
+Finished job 45.
+54 of 57 steps (95%) done
+[Tue Dec 10 16:56:26 2024]
+Finished job 41.
+55 of 57 steps (96%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:56:26 2024]
+rule filter_SNP:
+    input: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, Reference/reference.fa
+    output: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf
+    jobid: 49
+    reason: Missing output files: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf; Input files updated by another job: vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf
+    wildcards: sample=24-008357-001_BLACKBIRD_2024-03-16
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:56:29 2024]
+Finished job 49.
+56 of 57 steps (98%) done
+Select jobs to execute...
+
+[Tue Dec 10 16:56:29 2024]
+localrule all:
+    input: processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, logs/24-008357-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt, logs/24-008356-003_Wild-Bird_COGR_2024-03-18/duplicate_metrics.txt, logs/24-007264-003_CHICKEN_2024-03-07/duplicate_metrics.txt, logs/24-008354-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/haplotype_caller.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/haplotype_caller.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-indels.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-indels.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-filtered-snps.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-filtered-snps.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/lofreq-called-variants.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/lofreq-called-variants.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf
+    jobid: 0
+    reason: Input files updated by another job: vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/lofreq-called-variants.vcf, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/revertsam.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/revertsam.bam, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R2.fastq.gz, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/final_mapped_reads.bam, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-haplotype-caller.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-snps.vcf, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_sort.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/all_reads.bam, vcf_files/24-007264-003_CHICKEN_2024-03-07/lofreq-called-variants.vcf, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R2.fastq.gz, logs/24-008356-003_Wild-Bird_COGR_2024-03-18/duplicate_metrics.txt, logs/24-008354-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-indels.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-filtered-snps.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-genotypes.vcf, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/all_reads.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/haplotype_caller.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/fastqsam.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_all.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/fastqsam.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/fastqsam.bam, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-snps.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-haplotype-caller.vcf, vcf_files/24-008356-003_Wild-Bird_COGR_2024-03-18/gatk4-unfiltered-genotypes.vcf, BAM_files/24-007264-003_CHICKEN_2024-03-07/final_mapped_reads.bam, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, logs/24-007264-003_CHICKEN_2024-03-07/duplicate_metrics.txt, BAM_files/24-007264-003_CHICKEN_2024-03-07/haplotype_caller.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-snps.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/mapped_reads_md.bam, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-filtered-snps.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-unfiltered-indels.vcf, vcf_files/24-008354-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-genotypes.vcf, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/all_reads.bam, logs/24-008357-001_BLACKBIRD_2024-03-16/duplicate_metrics.txt, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R1.fastq.gz, BAM_files/24-007264-003_CHICKEN_2024-03-07/revertsam.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/final_mapped_reads.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_all.bam, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_md.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-haplotype-caller.vcf, BAM_files/24-008357-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/revertsam.bam, vcf_files/24-007264-003_CHICKEN_2024-03-07/gatk4-unfiltered-indels.vcf, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_md.bam, processed-reads/24-008356-003_Wild-Bird_COGR_2024-03-18/24-008356-003_Wild-Bird_COGR_2024-03-18_R1.fastq.gz, processed-reads/24-008354-001_BLACKBIRD_2024-03-16/24-008354-001_BLACKBIRD_2024-03-16_R2.fastq.gz, BAM_files/24-007264-003_CHICKEN_2024-03-07/fastqsam.bam, BAM_files/24-007264-003_CHICKEN_2024-03-07/all_reads.bam, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R1.fastq.gz, processed-reads/24-007264-003_CHICKEN_2024-03-07/24-007264-003_CHICKEN_2024-03-07_R1.fastq.gz, BAM_files/24-008356-003_Wild-Bird_COGR_2024-03-18/mapped_reads_sort.bam, processed-reads/24-008357-001_BLACKBIRD_2024-03-16/24-008357-001_BLACKBIRD_2024-03-16_R2.fastq.gz, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_sort.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/haplotype_caller.bam, BAM_files/24-008354-001_BLACKBIRD_2024-03-16/mapped_reads_all.bam, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/lofreq-called-variants.vcf, vcf_files/24-008357-001_BLACKBIRD_2024-03-16/gatk4-filtered-snps.vcf
+    resources: tmpdir=/var/folders/21/zw43nfm17y755ydwfp27lqh00000gn/T
+
+[Tue Dec 10 16:56:29 2024]
+Finished job 0.
+57 of 57 steps (100%) done
+Complete log: .snakemake/log/2024-12-10T152450.580354.snakemake.log

@@ -1,0 +1,6 @@
+animal	gene	aa_position	mutation	funct	no_animal	ave_alle_freq	consensus	low_freq	gatk4
+wild-bird	HA	154	Q154L	pathogenicity	1	1	1	0	1
+wild-bird	NP	105	V105M	pathogenicity	4	0.997	4	0	4
+wild-bird	NS	205	V205G, V205I	virulence	4	0.999	4	0	1
+wild-bird	PB2	495	V495I	mammal-adaptation	4	0.997	4	0	4
+wild-bird	PB2	631	M631L	mammal-adaptation	4	0.999	4	0	4
