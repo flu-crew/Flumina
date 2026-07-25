@@ -49,7 +49,7 @@ af.val = gsub("\"", "", config$MIN_ALLELE_FREQUENCY)
 #output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/variant_analysis"
 #aa.table.path = paste0("/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/curated_database.csv")
 #threads = 4
-#group.names = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/sample_names.csv"
+#group.names = "discrete_host"   # a COLUMN of the METADATA csv, not a path
 
 #############################################
 #### Should not need to modify below here
@@ -60,9 +60,18 @@ af.val = gsub("\"", "", config$MIN_ALLELE_FREQUENCY)
 #read in previous database
 sample.data = read.table(paste0(output.directory, "/all_sample_amino_acids.txt"), sep = "\t", header = T, na.strings = "")
 
+#GROUP_NAMES is the name of a metadata COLUMN (e.g. "discrete_host"), not a path.
+#findAAChanges.R already merged the METADATA csv into all_sample_amino_acids.txt,
+#so the column is present here and no second file needs to be read. The grouping
+#loop below keys off sample.data$group, so map the chosen column onto it.
 if (is.null(group.names) != TRUE){
-  name.data = read.csv(group.names)
-  sample.data = merge(sample.data, name.data, by = "sample")
+  if (!group.names %in% colnames(sample.data)){
+    stop(paste0("GROUP_NAMES column '", group.names, "' not found in ",
+                output.directory, "/all_sample_amino_acids.txt.\n",
+                "  Available columns: ", paste(colnames(sample.data), collapse = ", "), "\n",
+                "  GROUP_NAMES must name a column of the METADATA csv, or be NULL."))
+  }
+  sample.data$group = sample.data[[group.names]]
 } #end if
 
 #Apply the config depth/quality floor (MIN_DEPTH / MIN_QUALITY). The amino-acid

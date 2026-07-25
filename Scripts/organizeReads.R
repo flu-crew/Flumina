@@ -24,7 +24,11 @@ for (line in lines) {
 #Define these
 read.directory = gsub("\"", "", config$READ_DIRECTORY)
 rename.file = gsub("\"", "", config$RENAME_FILE)
-overwrite = is.logical(gsub("\"", "", config$OVERWRITE))
+#is.logical() on a character vector is ALWAYS FALSE, so OVERWRITE never took
+#effect. Parse the string to a real logical instead.
+overwrite.raw = gsub("\"", "", config$OVERWRITE)
+overwrite = length(overwrite.raw) > 0L &&
+            toupper(trimws(overwrite.raw)) %in% c("TRUE", "T", "YES", "1")
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/organized-reads")
 
 ### Script start
