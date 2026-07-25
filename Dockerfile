@@ -64,11 +64,54 @@ RUN NXF_VER=${NXF_VER} curl -s https://get.nextflow.io | bash \
  && NXF_HOME=/opt/nextflow nextflow -version \
  && chmod -R 777 /opt/nextflow
 
+# WFABC (Foll et al. 2015) is not packaged on conda or anywhere else, so it is
+# built from the author's own source. Pinned to a commit rather than a branch so
+# the binaries cannot change under a rebuild.
+#
+# No apt packages are needed: the conda env above already supplies make, a C++
+# compiler, and the OpenMP runtime the Makefile's -fopenmp requires. Building
+# with the conda toolchain also means the binaries link against the same
+# libstdc++/libgomp that ship in this image.
+USER root
+ARG WFABC_COMMIT=c3d8896d91533fd0ca9f5a78fd6b5633dea8b90c
+RUN cd /tmp \
+ && curl -sSL "https://github.com/mfoll/WFABC/archive/${WFABC_COMMIT}.tar.gz" -o wfabc.tar.gz \
+ && tar -xzf wfabc.tar.gz \
+ && make -C "WFABC-${WFABC_COMMIT}/sources" CC=x86_64-conda-linux-gnu-g++ \
+ && cp "WFABC-${WFABC_COMMIT}/sources/wfabc_1" \
+       "WFABC-${WFABC_COMMIT}/sources/wfabc_2" /usr/local/bin/ \
+ && chmod 755 /usr/local/bin/wfabc_1 /usr/local/bin/wfabc_2 \
+ && rm -rf wfabc.tar.gz "WFABC-${WFABC_COMMIT}"
+
+# SNPGenie, installed from the author's source rather than bioconda. The conda
+# package depends on perl-list-util, which is built only against perl 5.22/5.26
+# and therefore cannot coexist with irma's perl >=5.32 — the solver rejects the
+# environment outright. The script itself needs nothing beyond perl core, so
+# installing it directly sidesteps a conflict that has no other resolution.
+# Pinned to a commit so a rebuild cannot silently change the analysis.
+ARG SNPGENIE_COMMIT=d790569bc74622a64fbf5142e763581087bc7ea0
+RUN cd /tmp \
+ && curl -sSL "https://github.com/chasewnelson/SNPGenie/archive/${SNPGENIE_COMMIT}.tar.gz" -o snpgenie.tar.gz \
+ && tar -xzf snpgenie.tar.gz \
+# fasta2revcom.pl and gtf2revcom.pl are called by snpgenie.pl for minus-strand
+# products, so they have to travel with it.
+ && cp "SNPGenie-${SNPGENIE_COMMIT}/snpgenie.pl" \
+       "SNPGenie-${SNPGENIE_COMMIT}/fasta2revcom.pl" \
+       "SNPGenie-${SNPGENIE_COMMIT}/gtf2revcom.pl" /usr/local/bin/ \
+ && chmod 755 /usr/local/bin/snpgenie.pl \
+              /usr/local/bin/fasta2revcom.pl \
+              /usr/local/bin/gtf2revcom.pl \
+ && rm -rf snpgenie.tar.gz "SNPGenie-${SNPGENIE_COMMIT}"
+
 # The pipeline itself. Copied last because it changes far more often than the
 # tool environment above, so edits to it do not invalidate the conda layer.
 COPY main.nf nextflow.config /opt/flumina/
+# conf/ holds the settings shared by the scheduler profiles; nextflow.config
+# includeConfig's it, so the image is unusable without it.
+COPY conf /opt/flumina/conf
 COPY reference.fa curated_database.csv /opt/flumina/
 COPY example_file_rename.csv example_metadata.csv config.cfg irma_config.sh /opt/flumina/
+COPY job_script_example_config.sh job_script_example_arguments.sh /opt/flumina/
 COPY Scripts /opt/flumina/Scripts
 RUN chmod -R +x /opt/flumina/Scripts
 USER $MAMBA_USER
