@@ -166,19 +166,96 @@ samples.
 
 ---
 
+## Snakemake removal and cleanup (2026-07-25)
+
+The Nextflow port is validated, so the legacy pipeline and its scaffolding were removed
+rather than carried along. Deleted:
+
+- `Flumina` — the Snakemake driver, with hardcoded `/Users/chutter` conda paths
+- `Scripts/snakefile_*.smk` — the three rule files
+- `snakemake=7.32.4` from `environment.yaml`, which cut the image from 4.17 GB to 3.77 GB
+- `Scripts/organizeReads.R` — only the old driver called it; Nextflow stages reads by symlink
+- `test_dataset/config.cfg` and `test_dataset/irma_config.sh` — absolute `/Users/chutter`
+  paths, superseded by the `test` profile
+
+The trade-off accepted here: the image can no longer run both pipelines, so the
+head-to-head output diff that validated the conversion cannot be re-run. That comparison
+is recorded in the Session 1 notes above and its result is committed history.
+
+Explanatory comments in `main.nf` and `nextflow.config` still reference Snakemake. Those
+are design rationale — why the output layout, the missing `bwa -t`, and the resurrected
+`filter_INDEL` rule are the way they are — and are deliberately kept.
+
+`Scripts/makeGTF.R`, `runSNPGenie.R` and `runWFABC.R` are unreferenced by `main.nf` but
+were **kept**: they are unfinished features with live params in `nextflow.config`, not
+dead code.
+
+Also fixed: the shipped `irma_config.sh` set `TMP=/Flumina_test/Flumina/irma_tmp`, a path
+that exists nowhere. Since the README tells users to copy that file, verbatim use sent
+IRMA's temp writes somewhere unwritable. Now `TMP=./irma_tmp`, resolving inside the
+per-task work directory.
+
+---
+
+## Cluster parallelism (`-p slurm,apptainer`)
+
+Per-step job submission is a core design goal — it is where Flumina's speed on large runs
+comes from — so it is the primary documented cluster path, not a footnote.
+
+**It is fully compatible with the container.** Nextflow runs on the host and submits each
+step as its own SLURM job; each of those jobs runs inside the Apptainer image. Full
+parallelism and one pinned software environment. The only constraint is that Nextflow
+itself cannot run *inside* the container in this mode, because it shells out to `sbatch`,
+which is not in the image. `module load nextflow` covers this on most clusters.
+
+New launcher flags: `-Q` queue, `-A` scheduler account options, `-j` max jobs in flight.
+New params: `slurm_queue`, `slurm_options`, `queue_size`, `apptainer_cache`.
+
+### Three things fixed to make this actually work
+
+1. **The scheduler queue and account were hardcoded** to `priority` / `--qos=vpru -A
+   nadc_iav` in the slurm profile. Any other site's run would have been rejected outright.
+   Now params with those values as defaults, overridable per run.
+
+2. **Nextflow rejects any `--param` whose value starts with a dash** — and scheduler
+   options nearly always do (`-A account`, `--qos=...`). `--slurm_options "-A myproject"`
+   fails with `Unknown option`. The launcher therefore writes the scheduler settings into
+   a generated config file passed with `-c`, setting `process.queue`,
+   `process.clusterOptions` and `executor.queueSize` directly. Setting the directives
+   rather than params also sidesteps config ordering: a `-c` file merges last, so it wins
+   over the profile defaults. Verified: `-c` precedence confirmed against a known param.
+
+3. **BSD `mktemp` only expands trailing X's.** The first version used
+   `mktemp .../flumina_cluster.XXXXXX.config`, which returned that name *literally* — so
+   two concurrent runs on the same node would share one file. Now `mktemp -d` with a
+   fixed filename inside, cleaned up by an EXIT/INT/TERM trap.
+
+Also added `apptainer.cacheDir` (default `$HOME/.apptainer/flumina`, override with
+`--apptainer_cache`). Without it, a hundred task jobs starting at once each race to
+convert the same image. It must live on a filesystem every compute node can see.
+
+`executor.submitRateLimit = '20/1min'` drip-feeds submissions instead of firing hundreds
+of `sbatch` calls in one burst, which some schedulers rate-limit or drop.
+
+The launcher fails fast on the two ways this can be set up wrongly: `-p slurm` from inside
+the container (reported before any file validation, since it is an architectural blocker
+rather than a fixable input), and `-p slurm` with no `sbatch` on PATH.
+
+`job_script_example.sh` leads with this mode — a deliberately tiny 2-core, long-wall-time
+job that runs Nextflow and waits on what it submits — and documents the
+single-allocation alternative at the bottom for sites with no Nextflow module.
+
+---
+
 ## Remaining work
 
 1. **Push the image to Docker Hub** as `chutter/flumina`, which every README instruction
    depends on:
    ```bash
-   docker build --platform linux/amd64 -t chutter/flumina:2.0.0 -t chutter/flumina:latest .
    docker push chutter/flumina:2.0.0 && docker push chutter/flumina:latest
    ```
+   Built and verified locally; not pushed.
 2. **Test under Apptainer on the cluster** — the one distribution path that could not be
-   exercised here.
-3. **Decide the fate of the legacy `Flumina` bash script** in the repo root. It drives the
-   old Snakemake pipeline and contains hardcoded `/Users/chutter` conda paths, so it is
-   both superseded by `Scripts/flumina` and broken for anyone else. Left in place pending
-   a decision.
-4. **Coordinate translation for low-frequency FluMut screening** (see the caveat above).
-5. WFABC and SNPGenie modules remain skeletons.
+   exercised here, and the one `job_script_example.sh` assumes.
+3. **Coordinate translation for low-frequency FluMut screening** (see the caveat above).
+4. WFABC and SNPGenie modules remain skeletons.

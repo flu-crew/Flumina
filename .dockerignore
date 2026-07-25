@@ -6,7 +6,6 @@ test_dataset/
 work/
 .nextflow*
 *.log
-**/.snakemake/
 **/Flumina_analysis/
 .DS_Store
 **/.DS_Store

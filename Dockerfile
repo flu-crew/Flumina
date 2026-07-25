@@ -7,9 +7,7 @@
 #
 # environment.yaml is the single source of truth for tool versions and is shared
 # with the conda install path, so the container and a local conda env resolve to
-# the same pinned versions. It still contains snakemake, which means this one
-# image can run BOTH the legacy Snakemake pipeline and the Nextflow pipeline —
-# that is what makes an output-level diff between them a fair comparison.
+# the same pinned versions.
 #
 #   docker build -t flumina:latest .
 #   docker run --rm -v "$PWD":/data -w /data flumina:latest bwa 2>&1 | head -3
