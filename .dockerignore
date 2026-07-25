@@ -1,0 +1,15 @@
+# Keep the build context small — the test dataset and any analysis output must
+# not be baked into the image; they are mounted at run time instead.
+.git
+.github
+test_dataset/
+work/
+.nextflow*
+*.log
+**/.snakemake/
+**/Flumina_analysis/
+.DS_Store
+**/.DS_Store
+*.bam
+*.vcf
+*.fastq.gz
