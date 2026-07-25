@@ -32,8 +32,12 @@ def helpMessage() {
       --read_directory   Directory of raw paired fastq.gz
       --rename_file      CSV with File,Sample columns
       --reference        Reference FASTA
-      --metadata         Metadata CSV containing a Sample column
-      --aa_db            Curated amino-acid database CSV
+
+    Optional inputs:
+      --metadata         Metadata CSV containing a Sample column. Without it the
+                         summaries are simply not grouped
+      --aa_db            Curated amino-acid database CSV. Without it the
+                         curated-site join is skipped
 
     Common:
       --outdir           Output directory              [${params.outdir}]
@@ -47,6 +51,8 @@ def helpMessage() {
       --flumut           Screen consensus for markers  [${params.flumut}]
       --flumut_lowfreq   Screen low-freq variants      [${params.flumut_lowfreq}]
       --flumut_freq_threshold  Min AF for low-freq     [${params.flumut_freq_threshold}]
+      --snpgenie         Run SNPGenie dN/dS            [${params.snpgenie}]
+      --wfabc            Run WFABC selection analysis  [${params.wfabc}]
       -profile           standard | docker | apptainer | slurm | test
     """.stripIndent()
 }
@@ -463,17 +469,32 @@ process R_ANALYSIS {
     def irma_step = params.run_irma
         ? "Rscript ${scripts}/organizeIRMA.R config.cfg"
         : "echo 'IRMA disabled, skipping organizeIRMA.R'"
+    // Both of these are optional. When not supplied nothing is staged, so the
+    // input variable is an empty list and would render as an empty string —
+    // write the literal NULL the R scripts test for instead.
+    def aa_db_cfg    = params.aa_db    ? "${aa_db}"    : 'NULL'
+    def metadata_cfg = params.metadata ? "${metadata}" : 'NULL'
+    // Grouping is a column OF the metadata, so without metadata there is
+    // nothing to group by and outputSummary.R would fail looking for it.
+    def group_cfg    = params.metadata ? "${params.group_names}" : 'NULL'
     """
     # Paths are relative to this work dir — never the submitting host.
     cat > config.cfg <<'CFG_END'
 OUTPUT_DIRECTORY="."
 REFERENCE_FILE="${reference}"
-AA_DB="${aa_db}"
-METADATA="${metadata}"
-GROUP_NAMES="${params.group_names}"
+AA_DB="${aa_db_cfg}"
+METADATA="${metadata_cfg}"
+GROUP_NAMES="${group_cfg}"
 MIN_DEPTH="${params.min_depth}"
 MIN_QUALITY="${params.min_quality}"
 MIN_ALLELE_FREQUENCY="${params.min_allele_frequency}"
+# runSNPGenie.R reads these two under different names than the rest of the
+# pipeline (MIN_ALLELE_FREQ / MIN_COVERAGE, not MIN_ALLELE_FREQUENCY /
+# MIN_DEPTH). Writing both spellings is what makes SNPGenie actually honour the
+# same depth and frequency thresholds as every other step; without them it
+# silently applies no filtering at all.
+MIN_ALLELE_FREQ="${params.min_allele_frequency}"
+MIN_COVERAGE="${params.min_depth}"
 DEDUP_KEYS="${params.dedup_keys}"
 DISABLE_IRMA="${params.run_irma ? 'FALSE' : 'TRUE'}"
 SNPGENIE="${params.snpgenie ? 'TRUE' : 'FALSE'}"
@@ -491,6 +512,95 @@ CFG_END
     Rscript ${scripts}/convertVCFtoTable.R config.cfg
     Rscript ${scripts}/findAAChanges.R     config.cfg
     Rscript ${scripts}/outputSummary.R     config.cfg
+    """
+}
+
+/*
+ * SNPGenie — per-site dN/dS from the pooled LoFreq calls (Nelson & Hughes 2015).
+ *
+ * Two scripts in sequence: makeGTF.R turns the reference into the per-segment
+ * GTF+FASTA pairs SNPGenie needs, then runSNPGenie.R runs SNPGenie itself over
+ * every sample's VCF and collects the per-sample output into combined tables.
+ *
+ * This ran in the old Snakemake driver and was lost in the Nextflow port — the
+ * `snpgenie` parameter survived but nothing acted on it, so setting it to true
+ * silently did nothing at all.
+ *
+ * The config.cfg emitted by R_ANALYSIS is reused rather than regenerated, so
+ * these steps cannot drift out of step with the main analysis. It is copied
+ * before being appended to because the staged original is a symlink into
+ * another task's directory.
+ */
+process SNPGENIE {
+    label 'process_medium'
+    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'snpGenie_results'
+    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'reference_gtf'
+
+    input:
+    path scripts
+    path config
+    path vcf_dirs, stageAs: 'vcf_files/*'
+    path reference
+    path metadata
+
+    output:
+    path 'snpGenie_results', emit: results, optional: true
+    path 'reference_gtf',    emit: gtf,     optional: true
+
+    script:
+    """
+    cp ${config} run_config.cfg
+    echo 'THREADS="${task.cpus}"' >> run_config.cfg
+    # runSNPGenie.R setwd()s into each per-sample output directory and then
+    # keeps using paths built from OUTPUT_DIRECTORY, which only works when that
+    # is absolute. The pipeline's relocatable OUTPUT_DIRECTORY="." therefore
+    # breaks it the moment it changes directory. Appending wins because the R
+    # config parsers keep the last value seen for a key, and \$PWD is resolved
+    # at run time inside this task's directory, so nothing is hardcoded.
+    echo "OUTPUT_DIRECTORY=\\"\$PWD\\"" >> run_config.cfg
+
+    Rscript ${scripts}/makeGTF.R      run_config.cfg
+    Rscript ${scripts}/runSNPGenie.R  run_config.cfg
+    """
+}
+
+/*
+ * WFABC — per-site selection coefficients and Ne from allele-frequency time
+ * series (Foll et al. 2015).
+ *
+ * Unlike every other step this one is not per-sample: it needs the SAME
+ * individual sampled at two or more time points, which it reconstructs by
+ * joining the variant table to METADATA on INDIVIDUAL_COLUMN and TIME_COLUMN.
+ * A metadata file without usable values in those columns yields no usable time
+ * series, so runWFABC.R stops with an explanatory error rather than emitting
+ * an empty result — hence the optional outputs.
+ *
+ * wfabc_1 and wfabc_2 are found on PATH; the container builds them from source
+ * (see the Dockerfile). Outside the container, set WFABC_PATH in config.cfg.
+ */
+process WFABC {
+    label 'process_medium'
+    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'wfabc_analysis'
+
+    input:
+    path scripts
+    path config
+    path vcf_dirs, stageAs: 'vcf_files/*'
+    path reference
+    path metadata
+
+    output:
+    path 'wfabc_analysis', emit: results, optional: true
+
+    script:
+    """
+    cp ${config} run_config.cfg
+    echo 'THREADS="${task.cpus}"' >> run_config.cfg
+    # Same reason as SNPGENIE above: runWFABC.R setwd()s into a per-site
+    # directory, so OUTPUT_DIRECTORY has to be absolute.
+    echo "OUTPUT_DIRECTORY=\\"\$PWD\\"" >> run_config.cfg
+
+    Rscript ${scripts}/runWFABC.R run_config.cfg
     """
 }
 
@@ -624,8 +734,18 @@ workflow {
         return
     }
 
-    ['read_directory','rename_file','reference','metadata','aa_db'].each { req ->
+    // metadata and aa_db are deliberately absent from this list: both are
+    // optional. Without metadata the summaries simply are not grouped; without
+    // aa_db the curated-site join is skipped. The full variant table and
+    // amino-acid table — the substantive outputs — need neither.
+    ['read_directory','rename_file','reference'].each { req ->
         if (!params[req]) error("Missing required parameter: --${req}  (see --help)")
+    }
+
+    if (params.wfabc && !params.metadata) {
+        error("--wfabc needs --metadata: selection is estimated from allele-frequency\n" +
+              "  time series, which are reconstructed by joining variants to the\n" +
+              "  individual and time-point columns of the metadata.")
     }
 
     /*
@@ -692,12 +812,17 @@ workflow {
 
     vcf_dirs = GATHER_SAMPLE_VCFS(per_sample).dir.collect()
 
+    // An empty list stages nothing, which is how an absent optional file is
+    // expressed — see the AA_DB/METADATA handling in R_ANALYSIS.
+    aa_db_ch    = params.aa_db    ? channel.value(file(params.aa_db))    : channel.value([])
+    metadata_ch = params.metadata ? channel.value(file(params.metadata)) : channel.value([])
+
     r = R_ANALYSIS(
         file("${projectDir}/Scripts"),
         vcf_dirs,
         ref.map { r, _idx, _dict -> r },
-        file(params.aa_db),
-        file(params.metadata),
+        aa_db_ch,
+        metadata_ch,
         irma_dirs
     )
 
@@ -711,5 +836,27 @@ workflow {
     // mutated pseudo-consensus for FluMut marker screening.
     if (params.run_irma && params.flumut_lowfreq) {
         FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs)
+    }
+
+    // Optional population-genetics analyses. Both read the config.cfg written by
+    // R_ANALYSIS, which is also what sequences them after it.
+    if (params.snpgenie) {
+        SNPGENIE(
+            file("${projectDir}/Scripts"),
+            r.config,
+            vcf_dirs,
+            ref.map { r_fa, _idx, _dict -> r_fa },
+            metadata_ch
+        )
+    }
+
+    if (params.wfabc) {
+        WFABC(
+            file("${projectDir}/Scripts"),
+            r.config,
+            vcf_dirs,
+            ref.map { r_fa, _idx, _dict -> r_fa },
+            metadata_ch
+        )
     }
 }

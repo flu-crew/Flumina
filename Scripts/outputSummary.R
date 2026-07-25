@@ -29,6 +29,19 @@ for (line in lines) {
 # Other columns can be added and joined with the variants
 aa.table.path = gsub("\"", "", config$AA_DB)
 
+# The curated database is optional. Everything this script produces is a join
+# against it, so with no database there is nothing to summarise — but the full
+# variant table and the complete amino-acid table have already been written by
+# the earlier steps, and those are the substantive outputs. Stop cleanly rather
+# than failing the run over a file the user chose not to supply.
+if (length(aa.table.path) == 0L || aa.table.path == "" ||
+    aa.table.path == "NULL" || !file.exists(aa.table.path)) {
+  message("No curated amino acid database provided (AA_DB); ",
+          "skipping curated_amino_acids.txt and summary_curated_sites.txt.")
+  message("The full variant table and all_sample_amino_acids.txt are unaffected.")
+  quit(save = "no", status = 0)
+}
+
 # output.directory used from 1_convertVCFtoTable.R
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_analysis")
 

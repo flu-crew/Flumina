@@ -247,6 +247,93 @@ single-allocation alternative at the bottom for sites with no Nextflow module.
 
 ---
 
+## SNPGenie and WFABC wired up (2026-07-25)
+
+**Both were silently dead before this.** `params.snpgenie` was written into the generated
+`config.cfg` but nothing acted on it; `params.wfabc` was referenced nowhere in `main.nf`
+at all. Setting either to TRUE ran no analysis and reported nothing — the exact silent
+no-op this pipeline's other work has been removing. SNPGenie additionally regressed when
+the legacy `Flumina` driver was deleted earlier in this session, since that script was the
+only thing that had ever called `makeGTF.R` + `runSNPGenie.R`.
+
+Correcting an earlier note in this document: these are **not** skeletons. `runWFABC.R` is
+743 lines and `runSNPGenie.R` 398, both complete, with tool detection, config handling and
+error paths. They were finished scripts that were never connected to the Nextflow port.
+
+### Now
+- `SNPGENIE` process: `makeGTF.R` → `runSNPGenie.R`, gated on `params.snpgenie` (`-G`)
+- `WFABC` process: `runWFABC.R`, gated on `params.wfabc` (`-W`)
+- Both reuse the `config.cfg` emitted by `R_ANALYSIS` rather than regenerating it, so their
+  settings cannot drift from the main analysis. The staged copy is a symlink, so it is
+  copied before `THREADS` is appended.
+- `WFABC=TRUE` and `SNPGENIE=TRUE` documented in `config.cfg`; `-G`/`-W` in the launcher
+
+### Two dependency problems found and solved
+
+1. **`runSNPGenie.R` reads `MIN_ALLELE_FREQ` and `MIN_COVERAGE`**, not the
+   `MIN_ALLELE_FREQUENCY` / `MIN_DEPTH` the rest of the pipeline writes. Left alone,
+   SNPGenie would have run with **no depth or frequency filtering at all** while appearing
+   to honour the pipeline's thresholds. The generated config now writes both spellings.
+
+2. **The bioconda `snpgenie` package is uninstallable alongside IRMA.** It depends on
+   `perl-list-util`, built only against perl 5.22/5.26, while `irma=1.0.3` requires perl
+   >=5.32 — the solver rejects the environment outright. That dependency is spurious:
+   every module `snpgenie.pl` uses (`List::Util`, `File::Temp`, `Getopt::Long`,
+   `Data::Dumper`, `IO::Handle`) has been perl core since 5.8. The Dockerfile therefore
+   installs `snpgenie.pl` (plus `fasta2revcom.pl` / `gtf2revcom.pl`, which it calls for
+   minus-strand products) from the author's source, pinned to a commit.
+
+**WFABC** is not packaged anywhere, so it is compiled from Foll's own repository
+(`github.com/mfoll/WFABC`), pinned to commit `c3d8896`. No apt packages are needed: the
+conda env already provides `make`, a C++ compiler and the OpenMP runtime that the
+Makefile's `-fopenmp` wants, and building with the conda toolchain keeps the binaries
+linked against the libstdc++/libgomp that ship in the image. Verified compiling and
+running inside the image before being committed to the Dockerfile.
+
+### A third problem: OUTPUT_DIRECTORY="." breaks both scripts
+
+Both `runSNPGenie.R` and `runWFABC.R` `setwd()` into a per-sample (or per-site) output
+directory and then keep using paths built from `OUTPUT_DIRECTORY`. That only works when it
+is absolute. The pipeline's relocatability work set `OUTPUT_DIRECTORY="."`, so the first
+`setwd()` invalidated every subsequent relative path — SNPGenie died with
+`task 1 failed - "cannot open the connection"` from inside a `%dopar%`, which hides the
+real cause.
+
+Both processes now append `OUTPUT_DIRECTORY="$PWD"` to their copy of the config. Appending
+works because the R config parsers keep the last value seen for a key, and `$PWD` resolves
+at run time inside the task directory, so relocatability is preserved — nothing is
+hardcoded and no analysis script was modified.
+
+### Validation status
+
+**SNPGenie: verified end to end** on `test_dataset` inside the container. Produces real
+values, not empty scaffolding — 19,109 codon rows, 1,737 site rows, 48 product rows across
+all 4 samples, with populated piN/piS and dN/dS columns per product (HA, M1, ...).
+
+**WFABC: exercised on real longitudinal data.** Validated against the Cow_Comparison
+combined_dataset (10 animals, DPI 1–14, 173 sample VCFs), with that data mounted read-only
+so the existing published results could not be touched.
+
+This run found a fourth problem that the synthetic test could never reach: **`coda` was
+missing from the environment.** `runWFABC.R` uses it for the HPD intervals it reports as
+the credible bounds on each selection coefficient. The failure is late and expensive — the
+metadata merge, the whole amino-acid table, and the first `wfabc_1`/`wfabc_2` invocations
+all succeed first, and only then does it die with `there is no package called 'coda'`.
+Added as `r-coda=0.19_4`. An audit of every `library()`/`::` call across `Scripts/*.R`
+against the image confirmed coda was the only gap.
+
+Confirmed working before that point: the compiled `wfabc_1`/`wfabc_2` binaries run on real
+data, the metadata merge resolves (`Animal ID` → `Animal.ID` via `make.names()`), and the
+amino-acid table builds — 19,951 rows with metadata correctly joined and the expected
+per-animal/locus/position directory tree.
+
+**Note for anyone running this dataset:** its individual column is `Animal ID`, with a
+space, which R imports as `Animal.ID`. The `INDIVIDUAL_COLUMN="Animal_ID"` default shipped
+in `config.cfg` does not match it. `runWFABC.R` passes the value through `make.names()`, so
+either the spaced or the dotted spelling works, but the underscore default does not.
+
+---
+
 ## Remaining work
 
 1. **Push the image to Docker Hub** as `chutter/flumina`, which every README instruction
@@ -258,4 +345,5 @@ single-allocation alternative at the bottom for sites with no Nextflow module.
 2. **Test under Apptainer on the cluster** — the one distribution path that could not be
    exercised here, and the one `job_script_example.sh` assumes.
 3. **Coordinate translation for low-frequency FluMut screening** (see the caveat above).
-4. WFABC and SNPGenie modules remain skeletons.
+4. **Validate SNPGenie and WFABC output against a real dataset.** Both are now wired up
+   and reached, but the correctness of their results is unverified here — see below.

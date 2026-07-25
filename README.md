@@ -169,6 +169,31 @@ Flumina looks for `file_rename.csv` in your working directory by default; point 
 
 A CSV of metadata to join with the amino acid data and summary data. This file must have at least a column titled "Sample" [capital S] to make the join possible. Any other column may be used to group the summaries with `-g`, for example a host column to compare cow versus bird versus poultry. Flumina looks for `metadata.csv` by default; point it elsewhere with `-m`.
 
+### A note on where your reads live
+
+Flumina never copies your reads. Nextflow stages them into each step by symlink, so a
+500-sample run duplicates nothing, and the read directory can sit wherever it already is:
+
+```
+flumina -i /project/sequencing/run47/fastq -o results
+```
+
+The one thing to know is that a container can only see paths that were mounted into it.
+Apptainer mounts your home and current directory automatically, so reads under either just
+work. For anywhere else — `/project`, `/lustre`, `/scratch` — either bind it:
+
+```
+apptainer run --bind /project flumina_latest.sif -i /project/sequencing/run47/fastq -o results
+```
+
+or set `APPTAINER_BIND=/project` once, which is what the example job script computes for
+you from the paths you give it. With Docker, mount it with `-v /project:/project`. Flumina
+cannot do this from inside the container — by the time it runs, the mounts are already
+fixed — but it will tell you the exact flag to add if a path is not visible.
+
+Running on a cluster with `-p slurm,apptainer` sidesteps this entirely: Nextflow runs on
+the host and works out the binds itself.
+
 ### The reference
 
 A reference sequence is needed to map the reads and compare amino acid changes to. This reference should have each gene as a separate entry in the fasta file, with the header including only the gene name. For now, multiple CDS reading frames should be included as separate fasta entries. There is no standard reference as the reference would depend on the research question. A default reference ships with Flumina and is used unless you supply your own with `-r`.
@@ -234,6 +259,16 @@ All of Flumina's arguments are laid out in the help menu. This menu can be acces
              at this minimum allele frequency (0-1). LoFreq variants at or
              above this frequency are applied to the IRMA consensus and the
              resulting sequences are screened. Off by default. e.g. '-l 0.01'
+        -G : Run SNPGenie dN/dS analysis. Uses the same depth and allele
+             frequency thresholds as -d and -f. Off by default
+        -W : Run WFABC selection analysis, estimating per-site selection
+             coefficients and effective population size from allele frequency
+             time series. Off by default.
+             NOTE: unlike every other step this is not per-sample — it needs
+             the SAME individual sampled at two or more time points, so your
+             metadata must have a column naming the individual and a numeric
+             column giving the time point (INDIVIDUAL_COLUMN and TIME_COLUMN
+             in config.cfg)
         -x : IRMA configuration file, e.g. to set TMP or SINGLE_LOCAL_PROC.
              Default is 'irma_config.sh' when one exists in the working
              directory
@@ -256,6 +291,11 @@ All of Flumina's arguments are laid out in the help menu. This menu can be acces
              These options may be combined. Default is 0
         -R : Resume a previous run, reusing all successfully completed work
         -N : Dry run. Print the Nextflow command that would be run, then exit
+
+        --export [dir] : copy the pipeline out of the container so Nextflow can
+             run on the host, which is required for '-p slurm' to submit each
+             step as its own job. Defaults to './flumina'. Nothing else needs
+             downloading — the container carries everything
 
         --version : prints the version number
 ```
@@ -326,19 +366,75 @@ TMP is the temporary directory that IRMA writes files to; it will otherwise use 
 
 A file named `irma_config.sh` in your working directory is picked up automatically; point Flumina at a different one with `-x`.
 
+# Population genetics analyses
+
+Two optional analyses run on the variant calls. Both are off by default.
+
+**SNPGenie** (`-G`) estimates per-site dN/dS from the pooled LoFreq calls (Nelson & Hughes 2015). It builds a per-segment GTF from your reference, runs SNPGenie over every sample, and collects the per-sample output into combined tables. It honours the same `-d` and `-f` thresholds as the rest of the pipeline.
+
+```
+flumina -i raw_reads -o results -G
+```
+
+**WFABC** (`-W`) estimates per-site selection coefficients and effective population size from allele-frequency time series (Foll et al. 2015).
+
+```
+flumina -i raw_reads -o results -W
+```
+
+WFABC is the one analysis that is **not per-sample**. It needs the same individual sampled at two or more time points, and reconstructs those trajectories by joining the variant table to your metadata. Your metadata therefore needs a column identifying the individual and a numeric column giving the time point, named in `config.cfg`:
+
+```bash
+INDIVIDUAL_COLUMN="Animal_ID"
+TIME_COLUMN="DPI"
+GENERATIONS_PER_TIME=1
+```
+
+A dataset of unrelated single-timepoint samples has no trajectories to fit, and the step will stop with an error rather than produce an empty result. Sites that are near-fixed or near-lost at every time point are skipped, since they carry no identifiable selection signal and are the main cause of `wfabc_2` hanging; `FIXATION_CUTOFF` and `WFABC_TIMEOUT` control that.
+
+Both tools ship in the container. Running outside it, SNPGenie needs `snpgenie.pl` on your PATH and WFABC needs `wfabc_1`/`wfabc_2`; set `SNPGENIE_PATH` or `WFABC_PATH` in `config.cfg` if they are installed somewhere unusual.
+
 # Running Flumina on a cluster
 
-This is where Flumina is fastest. With `-p slurm,apptainer` every pipeline step is submitted as its own scheduler job, so independent samples and independent steps run at the same time rather than one after another — with 100 samples the per-sample chain runs about 100-wide. Each of those jobs runs inside the Flumina container, so you still get exactly one pinned software environment.
+This is where Flumina is fastest. With a scheduler profile every pipeline step is submitted as its own job, so independent samples and independent steps run at the same time rather than one after another — with 100 samples the per-sample chain runs about 100-wide. Each of those jobs runs inside the Flumina container, so you still get exactly one pinned software environment.
+
+Five schedulers are supported. They differ only in the profile name, so every other argument below is the same whichever you use:
+
+| Profile | Scheduler |
+|---|---|
+| `slurm` | Slurm |
+| `pbs` | Torque / OpenPBS |
+| `pbspro` | PBS Pro (Altair) — distinct from `pbs`, as Nextflow emits different resource directives |
+| `sge` | Sun/Son of Grid Engine |
+| `lsf` | IBM Spectrum LSF |
+
+Pair one with `apptainer` so the submitted jobs run in the container, e.g. `-p pbs,apptainer`. Queue and account options are passed through untouched, so use your scheduler's own syntax with `-Q` and `-A`.
+
+This mode is the one case where the container alone is not enough: Nextflow has to run on the host to call `sbatch`, so it needs `main.nf` and `Scripts/` readable there. You do not need to clone anything for that — the image will hand them to you:
+
+```
+module load nextflow apptainer
+apptainer pull -F docker://chutter/flumina
+apptainer run flumina_latest.sif --export ./flumina
+export PATH="$PWD/flumina/Scripts:$PATH"
+```
+
+Then run it, and every step still executes inside the container:
 
 ```
 flumina -i raw_reads -o results -p slurm,apptainer -w /scratch/$USER/flumina \
         -Q priority -A "--qos=vpru -A nadc_iav" -j 100 -t 8 -M 32.GB
 ```
 
-An example SLURM job script is included in this repository ("job_script_example.sh"). Edit the account, partition, and email lines at the top, then submit it:
+Two example SLURM job scripts are included, differing only in how the run is described. Pick whichever suits you, edit the account, partition, and email lines at the top, and submit it:
+
+| Script | Use when |
+|---|---|
+| `job_script_example_config.sh` | Settings live in `config.cfg`. The script is short and the run is recorded in one file |
+| `job_script_example_arguments.sh` | Settings are bash variables at the top, passed as command-line arguments. Nothing to maintain but the script |
 
 ```
-sbatch job_script_example.sh
+sbatch job_script_example_config.sh
 ```
 
 Four things matter more than the rest:
@@ -370,6 +466,9 @@ Results are written to the output directory given by `-o`:
 | `processed-reads/` | Trimmed reads |
 | `flumut/` | H5N1 markers found in the consensus genomes |
 | `flumut_lowfreq/` | H5N1 markers found in low-frequency variants (with `-l`) |
+| `snpGenie_results/` | Per-site dN/dS estimates (with `-G`) |
+| `reference_gtf/` | Per-segment GTF and FASTA built for SNPGenie (with `-G`) |
+| `wfabc_analysis/` | Selection coefficients and Ne estimates (with `-W`) |
 | `logs/` | Per-sample tool logs |
 | `pipeline_info/` | Run timeline, resource report, trace, and the exact config used |
 
