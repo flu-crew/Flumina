@@ -21,6 +21,27 @@ source "$CONFIG_FILE"
 
 echo "Configuration file successfully loaded"
 
+# Add Flumina conda env to PATH if snakemake not already available
+if ! command -v snakemake &>/dev/null && [ -f "/Users/chutter/Bioinformatics/conda/Flumina/bin/snakemake" ]; then
+  export PATH="/Users/chutter/Bioinformatics/conda/Flumina/bin:$PATH"
+fi
+
+# Add snpgenie conda env to PATH when SNPGENIE is enabled
+if [ "${SNPGENIE:-FALSE}" = "TRUE" ] && [ -f "/Users/chutter/Bioinformatics/conda/snpgenie/bin/snpgenie.pl" ]; then
+  export PATH="/Users/chutter/Bioinformatics/conda/snpgenie/bin:$PATH"
+fi
+
+# Use conda env Java if system Java is too old for GATK (need Java 17+)
+CONDA_JAVA="/Users/chutter/Bioinformatics/conda/Flumina/lib/jvm/bin/java"
+if [ -f "$CONDA_JAVA" ]; then
+  JAVA_VER=$("$CONDA_JAVA" -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d. -f1)
+  SYS_VER=$(java -version 2>&1 | awk -F '"' '/version/ {print $2}' | cut -d. -f1)
+  if [ "${SYS_VER:-0}" -lt 17 ] && [ "${JAVA_VER:-0}" -ge 17 ]; then
+    export PATH="/Users/chutter/Bioinformatics/conda/Flumina/lib/jvm/bin:$PATH"
+    export JAVA_HOME="/Users/chutter/Bioinformatics/conda/Flumina/lib/jvm"
+  fi
+fi
+
 mkdir "$OUTPUT_DIRECTORY"
 
 echo "Beginning read organization ... "
@@ -80,6 +101,12 @@ Rscript Scripts/findAAChanges.R "$CONFIG_FILE"
 
 Rscript Scripts/outputSummary.R "$CONFIG_FILE"
 
+# Run SNPGenie dN/dS analysis if enabled
+if [ "${SNPGENIE:-FALSE}" = "TRUE" ]; then
+    echo "Beginning SNPGenie dN/dS analysis ... "
+    Rscript Scripts/makeGTF.R   "$CONFIG_FILE"
+    Rscript Scripts/runSNPGenie.R "$CONFIG_FILE"
+fi
 
 date
 # End of file

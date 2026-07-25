@@ -52,20 +52,25 @@ for (i in 1:length(sample.names)) {
   sample.files = list.files(paste0(irma.directory, "/", sample.names[i]), full.names = T)
   fasta.files = sample.files[grep(".fasta$", sample.files)]
   
-  #check
+  #Deletes directory if nothing was in there
+  if (length(fasta.files) == 0){
+    system(paste0("rm -rf ", irma.directory, "/", sample.names[i]))
+    next
+  } 
+  
+  #check if file exists and overwrite
   if (file.exists(paste0(output.directory, "/", sample.names[i], ".fasta")) == TRUE){
-    unlink(paste0(output.directory, "/", sample.names[i], ".fasta"))
+    system(paste0("rm ", output.directory, "/", sample.names[i], ".fasta"))
   }
   
-  #Starts to finally look for Haplotypes! *here
+  #concatenates all the fasta files
   system(paste0(
     "cat ", paste0(fasta.files, collapse = " "),
     " > ", output.directory, "/", sample.names[i], ".fasta"
   ))
-
-
-
+  
 }# end i loop
+
 
 
 # END SCRIPT

@@ -35,7 +35,7 @@ output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_ana
 #Grouping category column name joined in step 2 with the variant sample data
 #Set to NULL if there are no groupings to use
 group.names = gsub("\"", "", config$GROUP_NAMES)
-if(length(group.names) == 0L) {
+if(length(group.names) == 0L || group.names == "NULL") {
   group.names <- NULL
 }
 
@@ -58,17 +58,23 @@ af.val = gsub("\"", "", config$MIN_ALLELE_FREQUENCY)
 #output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/variant_analysis"
 
 #read in previous database
-sample.data = read.table(paste0(output.directory, "/all_sample_amino_acids.txt"), sep = "\t", header = T)
-name.data = read.csv(group.names)
+sample.data = read.table(paste0(output.directory, "/all_sample_amino_acids.txt"), sep = "\t", header = T, na.strings = "")
 
 if (is.null(group.names) != TRUE){
+  name.data = read.csv(group.names)
   sample.data = merge(sample.data, name.data, by = "sample")
 } #end if
 
-#Get basic stats
-#cattle.data = cattle.data[cattle.data$depth >= 20,]
-#cattle.data = cattle.data[cattle.data$quality >= 30,]
-#cattle.data = cattle.data[cattle.data$allele_frequency >= 0.005,]
+#Apply the config depth/quality floor (MIN_DEPTH / MIN_QUALITY). The amino-acid
+#table from findAAChanges.R is already filtered; this re-applies the same
+#thresholds defensively so summaries always honor the floor even if run on an
+#older table. Allele-frequency handling is left to the summary section below.
+if (length(depth.val) != 0L && nzchar(depth.val)){
+  sample.data = sample.data[!is.na(sample.data$depth) & sample.data$depth >= as.numeric(depth.val),]
+}
+if (length(qual.val) != 0L && nzchar(qual.val)){
+  sample.data = sample.data[!is.na(sample.data$quality) & sample.data$quality >= as.numeric(qual.val),]
+}
 
 
 # if (group.names == "AUTO"){
@@ -86,6 +92,10 @@ if (is.null(group.names) != TRUE){
 
 #Reads in curated database
 best.aa = read.csv(aa.table.path, header = TRUE, sep = ",")
+# A UTF-8 BOM in the curated CSV mangles the first column name (e.g. "X...Gene"),
+# which silently nulls best.aa$Gene and makes the merge below return 0 rows.
+# Normalise the first column back to "Gene".
+colnames(best.aa)[1] = "Gene"
 best.aa[is.na(best.aa) == TRUE] = "NA"
 
 #Obtains gene names
@@ -93,8 +103,8 @@ gene.names = unique(sample.data$locus)
 
 #Combines all the data into 1 data frame
 save.sample = c()
-for (i in 1:length(gene.names)){
-  
+for (i in seq_along(gene.names)){
+
   #Subsets data
   temp.sample = sample.data[sample.data$locus %in% gene.names[i],]
   temp.fun = best.aa[best.aa$Gene %in% gene.names[i],]
@@ -130,7 +140,7 @@ if (is.null(group.names) != TRUE){
 } else{ group.values = "all" }
 
 all.data = c()
-for (i in 1:length(group.values)){
+for (i in seq_along(group.values)){
 
   #Obtains different animal groups
   if (is.null(group.names) != TRUE){
@@ -142,7 +152,7 @@ for (i in 1:length(group.values)){
   
   #Creates table
   sample.table = c()
-  for (j in 1:length(gene.names)){
+  for (j in seq_along(gene.names)){
     
     #Subsets data
     gene.data = group.data[grep(gene.names[j], group.data$locus),]
@@ -163,7 +173,7 @@ for (i in 1:length(group.values)){
                             gatk4 = as.numeric())
     
     #Loops through positions
-    for (k in 1:length(aa.pos)){
+    for (k in seq_along(aa.pos)){
       
       #empty data for this section
       vector.table = data.frame(animal = as.character(),

@@ -45,12 +45,35 @@ reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY),"/reference.fa")
 
 #Optional for merging metadata with AA data, set to NULL if none available
 metadata.file = gsub("\"", "", config$METADATA)
-if(length(metadata.file) == 0L) {
+if(length(metadata.file) == 0L || metadata.file == "NULL") {
   metadata.file <- NULL
 }
 
 #Set multithreading and memory usage
 threads = as.numeric(gsub("\"", "", config$THREADS))
+
+# Config helper with defaults (returns `default` when the key is missing/blank/NULL).
+# Robust to interactive runs where the config file was not parsed into `config`.
+if (!exists("config") || !is.list(config)) config = list()
+cfg = function(key, default = NULL){
+  v = config[[key]]
+  if (is.null(v)) return(default)
+  v = gsub("\"", "", trimws(v))
+  if (!nzchar(v) || v == "NULL") return(default)
+  v
+}
+
+# Depth-artifact guards applied to the combined amino-acid table (see below).
+# MIN_DEPTH defaults to 100x: at low template input LoFreq/GATK4 report false
+# fixations (founder/jackpot effect), so a real depth floor is enforced by
+# default even if a study omits the key. MIN_QUALITY defaults off (0).
+# DEDUP_KEYS is opt-in: a comma-separated list of metadata columns identifying
+# one biological sample (e.g. "Animal.ID,DPI,Quarter"); when set, replicate
+# libraries of the same sample are collapsed by keeping the deepest call per
+# sample x locus x position x alternative. Unset -> no dedup (default).
+min.depth   = as.numeric(cfg("MIN_DEPTH", "100"))
+min.quality = as.numeric(cfg("MIN_QUALITY", "0"))
+dedup.keys  = cfg("DEDUP_KEYS", "")
 
 # output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/variant_analysis"
 # vcftable.path = paste0(output.directory, "/variant-table.csv")
@@ -170,8 +193,45 @@ for (i in 1:length(aa.sample)){
   }#end if
   
   sample.data$locus = gsub("^A_", "", sample.data$locus)
+  sample.data$locus = gsub("_[A-Z][0-9]+$", "", sample.data$locus)
   all.samples = rbind(all.samples, sample.data)
 }#end i loop
+
+#############################################
+#### Depth-artifact guards (depth/quality floor + optional swab dedup)
+#############################################
+# Low-input libraries produce spurious apparent fixations (founder/jackpot
+# effect); enforce a real read-depth floor here so the amino-acid table (and
+# every downstream high-frequency/curated analysis that reads it) is clean.
+all.samples$depth   = suppressWarnings(as.numeric(all.samples$depth))
+all.samples$quality = suppressWarnings(as.numeric(all.samples$quality))
+n0 = nrow(all.samples)
+all.samples = all.samples[!is.na(all.samples$depth) & all.samples$depth >= min.depth, ]
+if (min.quality > 0){
+  all.samples = all.samples[!is.na(all.samples$quality) & all.samples$quality >= min.quality, ]
+}
+cat(sprintf("Depth/quality filter (MIN_DEPTH=%s, MIN_QUALITY=%s): %d -> %d calls\n",
+            min.depth, min.quality, n0, nrow(all.samples)))
+
+# Optional swab deduplication: collapse replicate libraries of the same
+# biological sample by keeping the DEEPEST call per DEDUP_KEYS x locus x
+# position x alternative. Disabled unless DEDUP_KEYS is set in the config.
+if (nzchar(dedup.keys)){
+  keys = trimws(strsplit(dedup.keys, ",")[[1]])
+  miss = setdiff(keys, colnames(all.samples))
+  if (length(miss) > 0){
+    warning("DEDUP_KEYS column(s) not found (", paste(miss, collapse = ", "),
+            "); skipping swab dedup.")
+  } else {
+    n1 = nrow(all.samples)
+    all.samples = all.samples[order(-all.samples$depth), ]
+    dup.key = do.call(paste, c(all.samples[, c(keys, "locus", "position", "alternative")],
+                               sep = "|"))
+    all.samples = all.samples[!duplicated(dup.key), ]
+    cat(sprintf("Swab dedup on [%s + locus/position/alternative]: %d -> %d calls\n",
+                paste(keys, collapse = ","), n1, nrow(all.samples)))
+  }
+}
 
 #Save large tab delimited table of all the amino acids
 write.table(all.samples, paste0(output.directory, "/all_sample_amino_acids.txt"),
