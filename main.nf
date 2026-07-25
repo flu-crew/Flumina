@@ -16,7 +16,17 @@ nextflow.enable.dsl = 2
 
 def helpMessage() {
     log.info """
-    Flumina ${workflow.manifest.version}
+    ##########################################################################
+                       Welcome to Flumina version ${workflow.manifest.version}!
+    ##########################################################################
+
+    Most users should launch Flumina through the `flumina` command rather than
+    calling this workflow directly, which gives short arguments and defaults:
+
+        flumina -i raw_reads -o results
+        flumina -h
+
+    Calling the workflow directly takes the same settings as --parameters:
 
     Required:
       --read_directory   Directory of raw paired fastq.gz
@@ -27,8 +37,16 @@ def helpMessage() {
 
     Common:
       --outdir           Output directory              [${params.outdir}]
+      --max_cpus         Max CPUs used at once         [${params.max_cpus}]
       --min_depth        Minimum depth to keep a call  [${params.min_depth}]
+      --min_quality      Minimum quality to keep       [${params.min_quality}]
+      --min_allele_frequency  Minimum allele frequency [${params.min_allele_frequency}]
+      --group_names      Metadata column to group by   [${params.group_names}]
       --run_irma         Run IRMA assembly             [${params.run_irma}]
+      --irma_config      IRMA parameter file           [${params.irma_config ?: 'none'}]
+      --flumut           Screen consensus for markers  [${params.flumut}]
+      --flumut_lowfreq   Screen low-freq variants      [${params.flumut_lowfreq}]
+      --flumut_freq_threshold  Min AF for low-freq     [${params.flumut_freq_threshold}]
       -profile           standard | docker | apptainer | slurm | test
     """.stripIndent()
 }
@@ -98,6 +116,18 @@ process FASTP {
     """
 }
 
+/*
+ * IRMA reads an OPTIONAL `irma_config.sh` from its current working directory —
+ * that is IRMA's own behaviour, not something added here (see the
+ * `[ -r "./irma_config.sh" ]` block in the IRMA script itself). Staging the
+ * user's file under that exact name into the task work dir is therefore all
+ * that is needed to pass through TMP, SINGLE_LOCAL_PROC and any other IRMA
+ * parameter, and it works identically under Docker and Apptainer because
+ * nothing inside the read-only image has to be modified.
+ *
+ * When --irma_config is not set, an empty list is staged, which stages nothing,
+ * and IRMA falls back to its module defaults.
+ */
 process IRMA {
     tag   "$sample"
     label 'process_high'
@@ -105,6 +135,7 @@ process IRMA {
 
     input:
     tuple val(sample), path(r1), path(r2)
+    path irma_cfg, stageAs: 'irma_config.sh'
 
     output:
     tuple val(sample), path("${sample}"), emit: results
@@ -463,6 +494,126 @@ CFG_END
     """
 }
 
+/*
+ * FluMut — screens consensus genomes against FluMutDB for H5N1 molecular
+ * markers of host adaptation, virulence, and antiviral resistance
+ * (Giussani et al. 2025, Virus Evolution: doi 10.1093/ve/veaf011).
+ *
+ * FluMut's default --name-regex is (?P<sample>.+)_(?P<segment>.+): it expects
+ * the sample name to be PART OF the header (e.g. >mysample_HA). IRMA's
+ * per-sample consensus headers carry no sample name at all — just a bare
+ * segment code like >A_HA_H5 — so rename_for_flumut.R injects the sample
+ * name from each file's basename and normalises the segment code to
+ * FluMutDB's vocabulary (confirmed against flumut_db.sql's `annotations`
+ * table: PB2/PB1/PA/HA/NP/NA/MP/NS). Verified against real IRMA output
+ * (Bird_Flu/IRMA-consensus-contigs) before wiring this in.
+ *
+ * FluMut runs once as a single batch across every sample's consensus, which
+ * is its intended usage — not once per sample.
+ *
+ * DELIBERATELY NOT using `flumut --update`: FluMutDB is a living database, and
+ * calling --update here would mean the SAME pipeline version can report
+ * different markers on different days with no record of why — the exact
+ * silent-nondeterminism failure this pipeline's reproducibility work (pinned
+ * envs, trace.txt, timeline.html) exists to prevent. The DB version actually
+ * used is pinned by the flumut=0.6.5 conda package and is bundled in the
+ * container image, so it is fixed for as long as that image tag is fixed.
+ * `flumut --version` is captured alongside the results as the provenance
+ * record. To deliberately pick up new markers, rebuild the image against a
+ * newer flumut pin — a conscious, recorded decision, not an implicit one.
+ */
+process FLUMUT {
+    label 'process_low'
+    publishDir "${params.outdir}/flumut", mode: params.publish_mode
+
+    input:
+    path scripts
+    path consensus_dir, stageAs: 'IRMA-consensus-contigs'
+
+    output:
+    path 'markers.tsv',        emit: markers,    optional: true
+    path 'mutations.tsv',      emit: mutations,  optional: true
+    path 'literature.tsv',     emit: literature, optional: true
+    path 'flumut_report.xlsm', emit: report,     optional: true
+    path 'flumut_version.txt', emit: version
+
+    script:
+    """
+    flumut --version > flumut_version.txt
+
+    Rscript ${scripts}/rename_for_flumut.R batch.fasta IRMA-consensus-contigs/*.fasta
+
+    if [ -s batch.fasta ]; then
+        flumut --skip-unmatch-names --skip-unknown-segments \\
+               -m markers.tsv -M mutations.tsv -l literature.tsv \\
+               -x flumut_report.xlsm \\
+               batch.fasta
+    else
+        echo "no consensus sequences to screen — skipping flumut" >&2
+    fi
+    """
+}
+
+process FLUMUT_LOWFREQ {
+    label 'process_low'
+    publishDir "${params.outdir}/flumut_lowfreq", mode: params.publish_mode
+
+    input:
+    path scripts
+    path consensus_dir, stageAs: 'IRMA-consensus-contigs'
+    path vcf_dirs,      stageAs: 'vcf_files/*'
+
+    output:
+    path 'markers.tsv',        emit: markers,    optional: true
+    path 'mutations.tsv',      emit: mutations,  optional: true
+    path 'literature.tsv',     emit: literature, optional: true
+    path 'flumut_report.xlsm', emit: report,     optional: true
+    path 'flumut_version.txt', emit: version
+
+    script:
+    freq_pct = (params.flumut_freq_threshold * 100).toInteger()
+    """
+    flumut --version > flumut_version.txt
+
+    # Build list of paired FASTA/VCF files for apply_lofreq_to_consensus.R
+    r_args=""
+    for consensus_fa in IRMA-consensus-contigs/*.fasta; do
+        [ -f "\$consensus_fa" ] || continue
+        sample=\$(basename "\$consensus_fa" .fasta)
+        vcf_file="vcf_files/\${sample}/lofreq-called-variants.vcf"
+        if [ -f "\$vcf_file" ]; then
+            r_args="\$r_args \$consensus_fa \$vcf_file"
+        fi
+    done
+
+    if [ -z "\$r_args" ]; then
+        echo "no matched IRMA consensus + LoFreq VCF pairs found" >&2
+        touch markers.tsv mutations.tsv literature.tsv
+        exit 0
+    fi
+
+    Rscript ${scripts}/apply_lofreq_to_consensus.R mutated.fasta ${params.flumut_freq_threshold} \$r_args
+
+    if [ ! -s mutated.fasta ]; then
+        echo "no low-frequency variants (AF >= ${freq_pct}%) found — skipping flumut" >&2
+        touch markers.tsv mutations.tsv literature.tsv
+        exit 0
+    fi
+
+    Rscript ${scripts}/rename_for_flumut.R batch.fasta mutated.fasta
+
+    if [ -s batch.fasta ]; then
+        flumut --skip-unmatch-names --skip-unknown-segments \\
+               -m markers.tsv -M mutations.tsv -l literature.tsv \\
+               -x flumut_report.xlsm \\
+               batch.fasta
+    else
+        echo "no mutated sequences to screen — skipping flumut" >&2
+        touch markers.tsv mutations.tsv literature.tsv
+    fi
+    """
+}
+
 /* ==========================================================================
  * Workflow
  * ========================================================================== */
@@ -506,10 +657,15 @@ workflow {
 
     trimmed = FASTP(samples).reads
 
+    // Optional IRMA parameter file, staged into every IRMA task as irma_config.sh.
+    irma_cfg = params.irma_config
+        ? channel.value(file(params.irma_config))
+        : channel.value([])
+
     // Collected IRMA output directories, or an empty list when IRMA is off.
     // An empty list stages nothing, which is how an optional input is expressed.
     irma_dirs = params.run_irma
-        ? IRMA(trimmed).results.map { _s, d -> d }.collect()
+        ? IRMA(trimmed, irma_cfg).results.map { _s, d -> d }.collect()
         : channel.value([])
 
     ubam     = FASTQ_TO_SAM(trimmed).bam
@@ -536,7 +692,7 @@ workflow {
 
     vcf_dirs = GATHER_SAMPLE_VCFS(per_sample).dir.collect()
 
-    R_ANALYSIS(
+    r = R_ANALYSIS(
         file("${projectDir}/Scripts"),
         vcf_dirs,
         ref.map { r, _idx, _dict -> r },
@@ -544,4 +700,16 @@ workflow {
         file(params.metadata),
         irma_dirs
     )
+
+    // Needs IRMA consensus, so it can only run when IRMA ran.
+    if (params.run_irma && params.flumut) {
+        FLUMUT(file("${projectDir}/Scripts"), r.irma)
+    }
+
+    // Screen low-frequency variants above threshold for H5N1 markers.
+    // Applies LoFreq variants to IRMA consensus sequences, creating
+    // mutated pseudo-consensus for FluMut marker screening.
+    if (params.run_irma && params.flumut_lowfreq) {
+        FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs)
+    }
 }
