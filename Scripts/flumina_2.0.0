@@ -1,0 +1,542 @@
+#!/bin/bash
+
+# Flumina — command-line launcher
+#
+# Wraps the Nextflow pipeline (main.nf) behind a FluPore-style interface so both
+# programs are driven the same way: short flags with sensible defaults, an
+# optional configuration file for everything else, and one container image that
+# can be run directly via Docker or Apptainer.
+#
+# Precedence, lowest to highest:
+#     built-in defaults  <  configuration file (-c)  <  command-line arguments
+#
+# This means a user who only needs to point at their reads can run
+#     flumina -i raw_reads -o results
+# while a user with many non-default parameters keeps using config.cfg.
+
+
+#Exit on unset variables would break the optional-argument pattern used below,
+#so it is deliberately not enabled. Pipeline failures are caught explicitly.
+
+#Flumina's version
+VERSION="2.0.0"
+
+
+##### Define functions #####
+#Resolve this script's real location, following symlinks (Scripts/flumina is a
+#symlink to Scripts/flumina_<version>, and users may symlink it onto their PATH).
+function resolve_script_dir() {
+    local src="${BASH_SOURCE[0]}"
+    local dir
+    while [ -L "$src" ]; do
+        dir=$( cd -P "$( dirname "$src" )" &> /dev/null && pwd )
+        src=$( readlink "$src" )
+        [[ $src != /* ]] && src="$dir/$src"
+    done
+    cd -P "$( dirname "$src" )" &> /dev/null && pwd
+}
+
+SCRIPT_DIR=$(resolve_script_dir)
+
+#The directory holding main.nf and the bundled reference files. Inside the
+#container this is baked in as /opt/flumina; from a git clone it is the parent
+#of the Scripts folder this launcher lives in.
+FLUMINA_HOME="${FLUMINA_HOME:-$(dirname "$SCRIPT_DIR")}"
+
+
+#Print the help menu
+function print_help_menu() {
+    cat <<helpChunk
+
+    ##########################################################################
+                       Welcome to Flumina version ${VERSION}!
+    ##########################################################################
+    Dependencies for this program are nextflow, java 17+, and either docker or
+    apptainer. Running the Flumina container image satisfies all of them.
+    For this help menu use the argument -h
+
+    WARNING: ENSURE THAT YOU ARE NOT RUNNING THIS ON THE HEADNODE!
+
+    Arguments:
+        -i : Input directory of raw paired fastq.gz reads. Default is
+             'raw_reads'
+        -o : Output directory. Default is 'Flumina_results'
+        -t : Number of threads. Default is 4
+        -M : Maximum memory any single step may use, e.g. '32.GB'. Default is
+             6.GB, which fits a laptop or a stock Docker Desktop VM. Raise it
+             on a workstation or cluster. The slurm profile raises it for you
+        -c : Configuration file holding any of these parameters in KEY=VALUE
+             form (see config.cfg). Command-line arguments override it.
+             Default is 'config.cfg' when one exists in the working directory
+        -n : CSV with the file name that matches both read pairs in the "File"
+             column and the sample name in the "Sample" column. Default is
+             'file_rename.csv'
+        -r : Reference FASTA with each gene segment as a separate entry.
+             Default is the bundled 'reference.fa'
+        -a : Curated amino acid database CSV with the columns "Gene",
+             "Amino_Acid", and "Type". Default is the bundled
+             'curated_database.csv'
+        -m : Metadata CSV with at least a "Sample" column. Default is
+             'metadata.csv'
+        -g : Metadata column name used to group the summaries, e.g. cow versus
+             bird versus poultry. Use 'NULL' for no grouping. Default is
+             'discrete_host'
+        -d : Minimum read depth to keep a variant. Default is 100.
+             WARNING: below 100 LoFreq and GATK report false fixations from low
+             template input (the founder/jackpot effect), so raise this rather
+             than lower it unless you know why you are doing so.
+        -q : Minimum quality to keep a variant, 0 disables. Default is 30
+        -f : Minimum allele frequency to keep a variant (0-1).
+             Default is 0.01 (1%)
+        -l : Also screen LOW-FREQUENCY variants for H5N1 markers with FluMut,
+             at this minimum allele frequency (0-1). LoFreq variants at or
+             above this frequency are applied to the IRMA consensus and the
+             resulting sequences are screened. Off by default. e.g. '-l 0.01'
+        -x : IRMA configuration file, e.g. to set TMP or SINGLE_LOCAL_PROC.
+             Default is 'irma_config.sh' when one exists in the working
+             directory
+        -p : Execution profile: 'standard' (run tools locally), 'docker',
+             'apptainer', or 'slurm'. Combine with a comma, e.g.
+             'slurm,apptainer'. Default is 'standard' inside the Flumina
+             container and 'docker' outside it
+        -w : Nextflow work directory holding intermediate files. Default is
+             './work'. On a cluster point this at scratch, for example
+             -w /scratch/\$USER/flumina
+        -s : Skip a portion of Flumina. Options: '0' = skip nothing,
+             'i' = skip IRMA assembly, 'm' = skip FluMut marker screening.
+             These options may be combined. Default is 0
+        -R : Resume a previous run, reusing all successfully completed work
+        -N : Dry run. Print the Nextflow command that would be run, then exit
+
+        --version : prints the version number
+
+helpChunk
+    exit 1
+}
+
+
+#Print an error in the same shape as the rest of the pipeline's messages
+function abort() {
+    echo >&2 -e "\nERROR: $1"
+    exit 1
+}
+
+
+#Validate that a value is a number inside an inclusive range
+function check_number() {
+    local flag=$1 value=$2 low=$3 high=$4
+    if ! [[ $value =~ ^[0-9]*\.?[0-9]+$ ]]; then
+        abort "Argument -${flag} must be a number, but got '${value}'"
+    fi
+    if ! awk -v v="$value" -v l="$low" -v h="$high" 'BEGIN{exit !(v>=l && v<=h)}'; then
+        abort "Argument -${flag} must be between ${low} and ${high}, but got '${value}'"
+    fi
+}
+
+
+#Read a KEY=VALUE configuration file. Values are stripped of surrounding quotes
+#and comments are ignored. Only keys Flumina knows about are consumed; anything
+#else is reported so a typo does not silently do nothing.
+function load_config_file() {
+    local file=$1 key value line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        [[ $line != *=* ]] && continue
+
+        key="${line%%=*}"
+        value="${line#*=}"
+        key="$(echo "$key" | sed -e 's/[[:space:]]*$//')"
+        value="$(echo "$value" | sed -e 's/^[[:space:]]*//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//")"
+
+        case "$key" in
+            OUTPUT_DIRECTORY)      CFG_OUTDIR="$value" ;;
+            READ_DIRECTORY)        CFG_READS="$value" ;;
+            RENAME_FILE)           CFG_RENAME="$value" ;;
+            REFERENCE_FILE)        CFG_REFERENCE="$value" ;;
+            AA_DB)                 CFG_AA_DB="$value" ;;
+            METADATA)              CFG_METADATA="$value" ;;
+            GROUP_NAMES)           CFG_GROUP="$value" ;;
+            MIN_DEPTH)             CFG_MIN_DEPTH="$value" ;;
+            MIN_QUALITY)           CFG_MIN_QUALITY="$value" ;;
+            MIN_ALLELE_FREQUENCY)  CFG_MIN_FREQ="$value" ;;
+            DEDUP_KEYS)            CFG_DEDUP_KEYS="$value" ;;
+            THREADS)               CFG_THREADS="$value" ;;
+            DISABLE_IRMA)          CFG_DISABLE_IRMA="$value" ;;
+            IRMA_CONFIG)           CFG_IRMA_CONFIG="$value" ;;
+            FLUMUT)                CFG_FLUMUT="$value" ;;
+            FLUMUT_LOWFREQ)        CFG_FLUMUT_LOWFREQ="$value" ;;
+            FLUMUT_FREQ_THRESHOLD) CFG_FLUMUT_FREQ="$value" ;;
+            SNPGENIE)              CFG_SNPGENIE="$value" ;;
+            INDIVIDUAL_COLUMN)     CFG_INDIVIDUAL_COLUMN="$value" ;;
+            TIME_COLUMN)           CFG_TIME_COLUMN="$value" ;;
+            GENERATIONS_PER_TIME)  CFG_GENERATIONS="$value" ;;
+            FIXATION_CUTOFF)       CFG_FIXATION_CUTOFF="$value" ;;
+            WFABC_TIMEOUT)         CFG_WFABC_TIMEOUT="$value" ;;
+            MAX_REFINE_ITER)       CFG_MAX_REFINE_ITER="$value" ;;
+            MAX_MEMORY)            CFG_MAX_MEMORY="$value" ;;
+            WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
+            PROFILE)               CFG_PROFILE="$value" ;;
+            #Snakemake-era settings that Nextflow handles itself
+            FORCE_UNLOCK|OVERWRITE|TEMPDIR)
+                echo "  note: '${key}' is no longer needed and was ignored (Nextflow handles this)"
+                ;;
+            CLUSTER_JOBS)
+                if [ "$value" != "FALSE" ] && [ -n "$value" ]; then
+                    echo "  note: 'CLUSTER_JOBS' was ignored. Use -p slurm instead, and set"
+                    echo "        queue and account options in nextflow.config"
+                fi
+                ;;
+            *)
+                echo "  note: unrecognized setting '${key}' was ignored"
+                ;;
+        esac
+    done < "$file"
+}
+
+
+#Turn TRUE/FALSE/T/F/YES/NO/1/0 into a Nextflow true/false
+function to_bool() {
+    case "$(echo "$1" | tr '[:lower:]' '[:upper:]')" in
+        TRUE|T|YES|1)  echo "true" ;;
+        FALSE|F|NO|0)  echo "false" ;;
+        *)             echo "" ;;
+    esac
+}
+
+
+
+
+##### Body #####
+#Assign defaults to variables
+READ_DIRECTORY="raw_reads"
+OUTPUT_DIRECTORY="Flumina_results"
+NTHREADS=4
+MAX_MEMORY=""
+RENAME_FILE="file_rename.csv"
+REFERENCE_FILE="${FLUMINA_HOME}/reference.fa"
+AA_DB="${FLUMINA_HOME}/curated_database.csv"
+METADATA="metadata.csv"
+GROUP_NAMES="discrete_host"
+MIN_DEPTH=100
+MIN_QUALITY=30
+MIN_FREQ=0.01
+DEDUP_KEYS=""
+RUN_IRMA="true"
+RUN_FLUMUT="true"
+FLUMUT_LOWFREQ="false"
+FLUMUT_FREQ=0.01
+IRMA_CONFIG=""
+WORK_DIR="work"
+RESUME=""
+DRY_RUN=0
+SNPGENIE=""
+INDIVIDUAL_COLUMN=""
+TIME_COLUMN=""
+GENERATIONS_PER_TIME=""
+FIXATION_CUTOFF=""
+WFABC_TIMEOUT=""
+MAX_REFINE_ITER=""
+
+#Inside the container every tool is already on PATH, so tasks run locally and
+#nesting another container runtime would fail. Outside it, Docker is the
+#default because it needs no extra setup beyond the image itself.
+if [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
+    PROFILE="standard"
+else
+    PROFILE="docker"
+fi
+
+#A config file is picked up automatically when it sits in the working directory,
+#which keeps the legacy `config.cfg` workflow working with no arguments at all.
+CONFIG_FILE=""
+[ -f "./config.cfg" ] && CONFIG_FILE="./config.cfg"
+
+
+#Go through input and assign input arguments to variables. Values are held aside
+#so they can be applied AFTER the config file, letting flags win over the file.
+while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:RNh-:" opt; do
+    case ${opt} in
+      i ) CLI_READS=$OPTARG ;;
+      o ) CLI_OUTDIR=$OPTARG ;;
+      t ) CLI_THREADS=$OPTARG ;;
+      M ) CLI_MAX_MEMORY=$OPTARG ;;
+      c ) CONFIG_FILE=$OPTARG ;;
+      n ) CLI_RENAME=$OPTARG ;;
+      r ) CLI_REFERENCE=$OPTARG ;;
+      a ) CLI_AA_DB=$OPTARG ;;
+      m ) CLI_METADATA=$OPTARG ;;
+      g ) CLI_GROUP=$OPTARG ;;
+      d ) CLI_MIN_DEPTH=$OPTARG ;;
+      q ) CLI_MIN_QUALITY=$OPTARG ;;
+      f ) CLI_MIN_FREQ=$OPTARG ;;
+      l ) CLI_FLUMUT_FREQ=$OPTARG ;;
+      x ) CLI_IRMA_CONFIG=$OPTARG ;;
+      p ) CLI_PROFILE=$OPTARG ;;
+      w ) CLI_WORKDIR=$OPTARG ;;
+      s )
+        #Reject unknown letters rather than skipping nothing silently, which
+        #would leave the user believing a step had been turned off.
+        if [[ $OPTARG =~ [^0im] ]]; then
+            echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', and 'm'" 1>&2
+            print_help_menu
+        fi
+        if [[ $OPTARG != *"0"* ]]; then
+            if [[ $OPTARG == *"i"* ]]; then
+                CLI_SKIP_IRMA=1
+            fi
+            if [[ $OPTARG == *"m"* ]]; then
+                CLI_SKIP_FLUMUT=1
+            fi
+        fi
+        ;;
+      R ) RESUME="-resume" ;;
+      N ) DRY_RUN=1 ;;
+      - )
+        if [[ "$OPTARG" == "version" ]]; then
+            echo "Flumina v${VERSION}"
+            exit 1
+        elif [[ "$OPTARG" == "help" ]]; then
+            print_help_menu
+        else
+            echo -e "\nERROR: Invalid argument: --$OPTARG" 1>&2
+            print_help_menu
+        fi
+        ;;
+      h ) print_help_menu ;;
+      : )
+        echo -e "\nERROR: Argument -$OPTARG requires a value" 1>&2
+        print_help_menu
+        ;;
+      \? )
+        echo -e "\nERROR: Invalid argument: -$OPTARG" 1>&2
+        print_help_menu
+        ;;
+    esac
+done
+
+
+#Apply the configuration file, if there is one
+if [ -n "$CONFIG_FILE" ]; then
+    [ -f "$CONFIG_FILE" ] || abort "Configuration file not found at ${CONFIG_FILE}"
+    echo -e "\nLoading configuration file ${CONFIG_FILE}"
+    load_config_file "$CONFIG_FILE"
+
+    [ -n "$CFG_READS" ]             && READ_DIRECTORY="$CFG_READS"
+    [ -n "$CFG_OUTDIR" ]            && OUTPUT_DIRECTORY="$CFG_OUTDIR"
+    [ -n "$CFG_THREADS" ]           && NTHREADS="$CFG_THREADS"
+    [ -n "$CFG_MAX_MEMORY" ]        && MAX_MEMORY="$CFG_MAX_MEMORY"
+    [ -n "$CFG_RENAME" ]            && RENAME_FILE="$CFG_RENAME"
+    [ -n "$CFG_REFERENCE" ]         && REFERENCE_FILE="$CFG_REFERENCE"
+    [ -n "$CFG_AA_DB" ]             && AA_DB="$CFG_AA_DB"
+    [ -n "$CFG_METADATA" ]          && METADATA="$CFG_METADATA"
+    [ -n "$CFG_GROUP" ]             && GROUP_NAMES="$CFG_GROUP"
+    [ -n "$CFG_MIN_DEPTH" ]         && MIN_DEPTH="$CFG_MIN_DEPTH"
+    [ -n "$CFG_MIN_QUALITY" ]       && MIN_QUALITY="$CFG_MIN_QUALITY"
+    [ -n "$CFG_MIN_FREQ" ]          && MIN_FREQ="$CFG_MIN_FREQ"
+    [ -n "$CFG_DEDUP_KEYS" ]        && DEDUP_KEYS="$CFG_DEDUP_KEYS"
+    [ -n "$CFG_IRMA_CONFIG" ]       && IRMA_CONFIG="$CFG_IRMA_CONFIG"
+    [ -n "$CFG_WORKDIR" ]           && WORK_DIR="$CFG_WORKDIR"
+    [ -n "$CFG_PROFILE" ]           && PROFILE="$CFG_PROFILE"
+    [ -n "$CFG_INDIVIDUAL_COLUMN" ] && INDIVIDUAL_COLUMN="$CFG_INDIVIDUAL_COLUMN"
+    [ -n "$CFG_TIME_COLUMN" ]       && TIME_COLUMN="$CFG_TIME_COLUMN"
+    [ -n "$CFG_GENERATIONS" ]       && GENERATIONS_PER_TIME="$CFG_GENERATIONS"
+    [ -n "$CFG_FIXATION_CUTOFF" ]   && FIXATION_CUTOFF="$CFG_FIXATION_CUTOFF"
+    [ -n "$CFG_WFABC_TIMEOUT" ]     && WFABC_TIMEOUT="$CFG_WFABC_TIMEOUT"
+    [ -n "$CFG_MAX_REFINE_ITER" ]   && MAX_REFINE_ITER="$CFG_MAX_REFINE_ITER"
+
+    #DISABLE_IRMA is the legacy spelling and is inverted relative to run_irma
+    if [ -n "$CFG_DISABLE_IRMA" ]; then
+        case "$(to_bool "$CFG_DISABLE_IRMA")" in
+            true)  RUN_IRMA="false" ;;
+            false) RUN_IRMA="true" ;;
+            *)     abort "DISABLE_IRMA must be TRUE or FALSE, but got '${CFG_DISABLE_IRMA}'" ;;
+        esac
+    fi
+
+    for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" "CFG_SNPGENIE:SNPGENIE"; do
+        src="${pair%%:*}"; dest="${pair##*:}"
+        if [ -n "${!src}" ]; then
+            converted=$(to_bool "${!src}")
+            [ -z "$converted" ] && abort "${src#CFG_} must be TRUE or FALSE, but got '${!src}'"
+            printf -v "$dest" '%s' "$converted"
+        fi
+    done
+
+    [ -n "$CFG_FLUMUT_FREQ" ] && FLUMUT_FREQ="$CFG_FLUMUT_FREQ"
+fi
+
+
+#Apply command-line arguments last so they override the configuration file
+[ -n "$CLI_READS" ]        && READ_DIRECTORY="$CLI_READS"
+[ -n "$CLI_OUTDIR" ]       && OUTPUT_DIRECTORY="$CLI_OUTDIR"
+[ -n "$CLI_THREADS" ]      && NTHREADS="$CLI_THREADS"
+[ -n "$CLI_MAX_MEMORY" ]   && MAX_MEMORY="$CLI_MAX_MEMORY"
+[ -n "$CLI_RENAME" ]       && RENAME_FILE="$CLI_RENAME"
+[ -n "$CLI_REFERENCE" ]    && REFERENCE_FILE="$CLI_REFERENCE"
+[ -n "$CLI_AA_DB" ]        && AA_DB="$CLI_AA_DB"
+[ -n "$CLI_METADATA" ]     && METADATA="$CLI_METADATA"
+[ -n "$CLI_GROUP" ]        && GROUP_NAMES="$CLI_GROUP"
+[ -n "$CLI_MIN_DEPTH" ]    && MIN_DEPTH="$CLI_MIN_DEPTH"
+[ -n "$CLI_MIN_QUALITY" ]  && MIN_QUALITY="$CLI_MIN_QUALITY"
+[ -n "$CLI_MIN_FREQ" ]     && MIN_FREQ="$CLI_MIN_FREQ"
+[ -n "$CLI_IRMA_CONFIG" ]  && IRMA_CONFIG="$CLI_IRMA_CONFIG"
+[ -n "$CLI_PROFILE" ]      && PROFILE="$CLI_PROFILE"
+[ -n "$CLI_WORKDIR" ]      && WORK_DIR="$CLI_WORKDIR"
+[ "${CLI_SKIP_IRMA:-0}" = "1" ]   && RUN_IRMA="false"
+[ "${CLI_SKIP_FLUMUT:-0}" = "1" ] && RUN_FLUMUT="false"
+
+#-l both enables low-frequency screening and sets its threshold
+if [ -n "$CLI_FLUMUT_FREQ" ]; then
+    FLUMUT_FREQ="$CLI_FLUMUT_FREQ"
+    FLUMUT_LOWFREQ="true"
+fi
+
+#Skipping FluMut entirely also skips the low-frequency screen
+[ "$RUN_FLUMUT" = "false" ] && FLUMUT_LOWFREQ="false"
+
+#FluMut screens the IRMA consensus, so without IRMA there is nothing to screen.
+#The workflow already skips it in that case; turning it off here as well keeps
+#the run summary below honest rather than promising a step that will not happen.
+if [ "$RUN_IRMA" = "false" ] && [ "$RUN_FLUMUT" = "true" ]; then
+    echo -e "\nWARNING: FluMut screening needs the IRMA consensus, but IRMA is disabled."
+    echo -e "         Marker screening will be skipped.\n"
+    RUN_FLUMUT="false"
+    FLUMUT_LOWFREQ="false"
+fi
+
+#An IRMA config in the working directory is picked up automatically
+if [ -z "$IRMA_CONFIG" ] && [ -f "./irma_config.sh" ]; then
+    IRMA_CONFIG="./irma_config.sh"
+fi
+
+
+##### Validate before launching anything #####
+check_number "t" "$NTHREADS"     1 1024
+check_number "d" "$MIN_DEPTH"    0 1000000
+check_number "q" "$MIN_QUALITY"  0 1000
+check_number "f" "$MIN_FREQ"     0 1
+check_number "l" "$FLUMUT_FREQ"  0 1
+
+[ -d "$READ_DIRECTORY" ] || abort "Read directory not found: ${READ_DIRECTORY}
+       Set it with -i, for example: flumina -i raw_reads"
+
+[ -f "$RENAME_FILE" ] || abort "Rename CSV not found: ${RENAME_FILE}
+       This file needs a 'File' column matching both read pairs and a 'Sample'
+       column with the desired sample name. Set it with -n"
+
+[ -f "$REFERENCE_FILE" ] || abort "Reference FASTA not found: ${REFERENCE_FILE}
+       Set it with -r"
+
+[ -f "$AA_DB" ] || abort "Curated amino acid database not found: ${AA_DB}
+       Set it with -a"
+
+[ -f "$METADATA" ] || abort "Metadata CSV not found: ${METADATA}
+       This file needs at least a 'Sample' column. Set it with -m"
+
+if [ -n "$IRMA_CONFIG" ] && [ ! -f "$IRMA_CONFIG" ]; then
+    abort "IRMA configuration file not found: ${IRMA_CONFIG}"
+fi
+
+[ -f "${FLUMINA_HOME}/main.nf" ] || abort "Could not find main.nf in ${FLUMINA_HOME}
+       Set FLUMINA_HOME to the directory holding main.nf"
+
+#Checked only for a real run: a dry run exists to inspect the command before
+#anything is installed, so it must not depend on the engine being present.
+if [ "$DRY_RUN" -eq 0 ] && ! command -v nextflow &> /dev/null; then
+    abort "nextflow was not found on your PATH.
+       Install it from https://www.nextflow.io, or run Flumina through the
+       container image, which already contains it:
+           apptainer run flumina_latest.sif -i raw_reads -o results"
+fi
+
+if [ "$MIN_DEPTH" -lt 100 ] 2>/dev/null; then
+    echo -e "\nWARNING: -d is set to ${MIN_DEPTH}. Below 100, LoFreq and GATK report false"
+    echo -e "         fixations from low template input (founder/jackpot effect).\n"
+fi
+
+
+##### Assemble and run the Nextflow command #####
+NF_ARGS=(
+    run "${FLUMINA_HOME}/main.nf"
+    -profile "$PROFILE"
+    -work-dir "$WORK_DIR"
+    --read_directory "$READ_DIRECTORY"
+    --rename_file "$RENAME_FILE"
+    --reference "$REFERENCE_FILE"
+    --aa_db "$AA_DB"
+    --metadata "$METADATA"
+    --outdir "$OUTPUT_DIRECTORY"
+    --group_names "$GROUP_NAMES"
+    --min_depth "$MIN_DEPTH"
+    --min_quality "$MIN_QUALITY"
+    --min_allele_frequency "$MIN_FREQ"
+    --max_cpus "$NTHREADS"
+    --run_irma "$RUN_IRMA"
+    --flumut "$RUN_FLUMUT"
+    --flumut_lowfreq "$FLUMUT_LOWFREQ"
+    --flumut_freq_threshold "$FLUMUT_FREQ"
+)
+
+[ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
+[ -n "$DEDUP_KEYS" ]           && NF_ARGS+=(--dedup_keys "$DEDUP_KEYS")
+[ -n "$IRMA_CONFIG" ]          && NF_ARGS+=(--irma_config "$IRMA_CONFIG")
+[ -n "$SNPGENIE" ]             && NF_ARGS+=(--snpgenie "$SNPGENIE")
+[ -n "$INDIVIDUAL_COLUMN" ]    && NF_ARGS+=(--individual_column "$INDIVIDUAL_COLUMN")
+[ -n "$TIME_COLUMN" ]          && NF_ARGS+=(--time_column "$TIME_COLUMN")
+[ -n "$GENERATIONS_PER_TIME" ] && NF_ARGS+=(--generations_per_time "$GENERATIONS_PER_TIME")
+[ -n "$FIXATION_CUTOFF" ]      && NF_ARGS+=(--fixation_cutoff "$FIXATION_CUTOFF")
+[ -n "$WFABC_TIMEOUT" ]        && NF_ARGS+=(--wfabc_timeout "$WFABC_TIMEOUT")
+[ -n "$MAX_REFINE_ITER" ]      && NF_ARGS+=(--max_refine_iter "$MAX_REFINE_ITER")
+[ -n "$RESUME" ]               && NF_ARGS+=("$RESUME")
+
+
+cat <<startBanner
+
+    ##########################################################################
+                       Welcome to Flumina version ${VERSION}!
+    ##########################################################################
+
+    Input reads         : ${READ_DIRECTORY}
+    Output directory    : ${OUTPUT_DIRECTORY}
+    Rename CSV          : ${RENAME_FILE}
+    Reference           : ${REFERENCE_FILE}
+    Amino acid database : ${AA_DB}
+    Metadata            : ${METADATA}
+    Grouping column     : ${GROUP_NAMES}
+    Threads             : ${NTHREADS}
+    Maximum memory      : ${MAX_MEMORY:-default for profile}
+    Minimum depth       : ${MIN_DEPTH}
+    Minimum quality     : ${MIN_QUALITY}
+    Minimum frequency   : ${MIN_FREQ}
+    IRMA assembly       : ${RUN_IRMA}
+    FluMut screening    : ${RUN_FLUMUT}
+    FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
+    IRMA config         : ${IRMA_CONFIG:-none}
+    Execution profile   : ${PROFILE}
+    Work directory      : ${WORK_DIR}
+
+startBanner
+
+
+if [ "$DRY_RUN" -eq 1 ]; then
+    echo -e "Dry run, the following command would be run:\n"
+    echo "nextflow ${NF_ARGS[*]}"
+    echo
+    exit 0
+fi
+
+
+echo -e "Beginning the Flumina pipeline ... \n"
+
+if ! nextflow "${NF_ARGS[@]}"; then
+    echo >&2 -e "\nERROR: Flumina failed. The message above says which step and why."
+    echo >&2 -e "       Fix the cause and re-run with -R to resume from the failure.\n"
+    exit 1
+fi
+
+echo -e "\nResults were written to ${OUTPUT_DIRECTORY}"
+echo -e "Flumina is finished!\n"
+
+# End of file
