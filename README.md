@@ -238,9 +238,16 @@ All of Flumina's arguments are laid out in the help menu. This menu can be acces
              Default is 'irma_config.sh' when one exists in the working
              directory
         -p : Execution profile: 'standard' (run tools locally), 'docker',
-             'apptainer', or 'slurm'. Combine with a comma, e.g.
-             'slurm,apptainer'. Default is 'standard' inside the Flumina
-             container and 'docker' outside it
+             'apptainer', or 'slurm'. Combine with a comma. Default is
+             'standard' inside the Flumina container and 'docker' outside it.
+             Use '-p slurm,apptainer' on a cluster to submit every step as its
+             own job, running each inside the container — this is what makes
+             large runs fast, as independent samples and steps run at once
+        -Q : Scheduler queue/partition for -p slurm. Default is 'priority'
+        -A : Scheduler account options for -p slurm.
+             Default is '--qos=vpru -A nadc_iav'
+        -j : Maximum scheduler jobs in flight at once with -p slurm.
+             Default is 100. This is the main throughput dial for a large run
         -w : Nextflow work directory holding intermediate files. Default is
              './work'. On a cluster point this at scratch, for example
              -w /scratch/$USER/flumina
@@ -321,13 +328,33 @@ A file named `irma_config.sh` in your working directory is picked up automatical
 
 # Running Flumina on a cluster
 
-Nextflow submits each step as its own job, so many samples can be processed at once. Use the `slurm` profile, which also raises the CPU and memory ceilings to cluster-appropriate values, and point the work directory at scratch:
+This is where Flumina is fastest. With `-p slurm,apptainer` every pipeline step is submitted as its own scheduler job, so independent samples and independent steps run at the same time rather than one after another — with 100 samples the per-sample chain runs about 100-wide. Each of those jobs runs inside the Flumina container, so you still get exactly one pinned software environment.
 
 ```
-flumina -i raw_reads -o results -p slurm,apptainer -w /scratch/$USER/flumina
+flumina -i raw_reads -o results -p slurm,apptainer -w /scratch/$USER/flumina \
+        -Q priority -A "--qos=vpru -A nadc_iav" -j 100 -t 8 -M 32.GB
 ```
 
-Queue and account settings live in the `slurm` profile in `nextflow.config` and should be edited to match your cluster.
+An example SLURM job script is included in this repository ("job_script_example.sh"). Edit the account, partition, and email lines at the top, then submit it:
+
+```
+sbatch job_script_example.sh
+```
+
+Four things matter more than the rest:
+
+- **Nextflow must run on the host, not inside the container.** It submits work with `sbatch`, and that binary is not in the image. Most clusters provide `module load nextflow`; Flumina will tell you if it is missing. The container is still used for every step — it just is not what wraps Nextflow.
+- **The job that runs Nextflow should be tiny.** Two cores is plenty, since it spends its life waiting on the jobs it submits. Give it a long wall time though, as it must outlive them all.
+- **Point the work directory at scratch with `-w`,** never at home or an NFS share. Every submitted job reads and writes there, so it must be visible from all compute nodes, and a slow filesystem here is the most common cause of a slow run.
+- **`-Q` and `-A` are almost certainly wrong for you.** They default to the flu-crew queue and account and will be rejected on any other cluster. `-j` sets how many jobs may be in flight at once, which is the main throughput dial.
+
+If your cluster has no Nextflow module, or you are only running a handful of samples, everything can instead run inside a single allocation with nothing installed but Apptainer:
+
+```
+apptainer run flumina_latest.sif -i raw_reads -o results -t 24 -M 100.GB
+```
+
+Steps then run in parallel only up to the cores of that one node, so this is considerably slower for large sample counts. Both approaches are laid out in full in the example job script.
 
 # Output
 

@@ -96,9 +96,16 @@ function print_help_menu() {
              Default is 'irma_config.sh' when one exists in the working
              directory
         -p : Execution profile: 'standard' (run tools locally), 'docker',
-             'apptainer', or 'slurm'. Combine with a comma, e.g.
-             'slurm,apptainer'. Default is 'standard' inside the Flumina
-             container and 'docker' outside it
+             'apptainer', or 'slurm'. Combine with a comma. Default is
+             'standard' inside the Flumina container and 'docker' outside it.
+             Use '-p slurm,apptainer' on a cluster to submit every step as its
+             own job, running each inside the container — this is what makes
+             large runs fast, as independent samples and steps run at once
+        -Q : Scheduler queue/partition for -p slurm. Default is 'priority'
+        -A : Scheduler account options for -p slurm.
+             Default is '--qos=vpru -A nadc_iav'
+        -j : Maximum scheduler jobs in flight at once with -p slurm.
+             Default is 100. This is the main throughput dial for a large run
         -w : Nextflow work directory holding intermediate files. Default is
              './work'. On a cluster point this at scratch, for example
              -w /scratch/\$USER/flumina
@@ -176,6 +183,9 @@ function load_config_file() {
             WFABC_TIMEOUT)         CFG_WFABC_TIMEOUT="$value" ;;
             MAX_REFINE_ITER)       CFG_MAX_REFINE_ITER="$value" ;;
             MAX_MEMORY)            CFG_MAX_MEMORY="$value" ;;
+            SLURM_QUEUE)           CFG_SLURM_QUEUE="$value" ;;
+            SLURM_OPTIONS)         CFG_SLURM_OPTIONS="$value" ;;
+            QUEUE_SIZE)            CFG_QUEUE_SIZE="$value" ;;
             WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
             PROFILE)               CFG_PROFILE="$value" ;;
             #Snakemake-era settings that Nextflow handles itself
@@ -223,6 +233,9 @@ MIN_DEPTH=100
 MIN_QUALITY=30
 MIN_FREQ=0.01
 DEDUP_KEYS=""
+SLURM_QUEUE=""
+SLURM_OPTIONS=""
+QUEUE_SIZE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
 FLUMUT_LOWFREQ="false"
@@ -256,12 +269,15 @@ CONFIG_FILE=""
 
 #Go through input and assign input arguments to variables. Values are held aside
 #so they can be applied AFTER the config file, letting flags win over the file.
-while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:RNh-:" opt; do
+while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:RNh-:" opt; do
     case ${opt} in
       i ) CLI_READS=$OPTARG ;;
       o ) CLI_OUTDIR=$OPTARG ;;
       t ) CLI_THREADS=$OPTARG ;;
       M ) CLI_MAX_MEMORY=$OPTARG ;;
+      Q ) CLI_SLURM_QUEUE=$OPTARG ;;
+      A ) CLI_SLURM_OPTIONS=$OPTARG ;;
+      j ) CLI_QUEUE_SIZE=$OPTARG ;;
       c ) CONFIG_FILE=$OPTARG ;;
       n ) CLI_RENAME=$OPTARG ;;
       r ) CLI_REFERENCE=$OPTARG ;;
@@ -327,6 +343,9 @@ if [ -n "$CONFIG_FILE" ]; then
     [ -n "$CFG_OUTDIR" ]            && OUTPUT_DIRECTORY="$CFG_OUTDIR"
     [ -n "$CFG_THREADS" ]           && NTHREADS="$CFG_THREADS"
     [ -n "$CFG_MAX_MEMORY" ]        && MAX_MEMORY="$CFG_MAX_MEMORY"
+    [ -n "$CFG_SLURM_QUEUE" ]       && SLURM_QUEUE="$CFG_SLURM_QUEUE"
+    [ -n "$CFG_SLURM_OPTIONS" ]     && SLURM_OPTIONS="$CFG_SLURM_OPTIONS"
+    [ -n "$CFG_QUEUE_SIZE" ]        && QUEUE_SIZE="$CFG_QUEUE_SIZE"
     [ -n "$CFG_RENAME" ]            && RENAME_FILE="$CFG_RENAME"
     [ -n "$CFG_REFERENCE" ]         && REFERENCE_FILE="$CFG_REFERENCE"
     [ -n "$CFG_AA_DB" ]             && AA_DB="$CFG_AA_DB"
@@ -373,6 +392,9 @@ fi
 [ -n "$CLI_OUTDIR" ]       && OUTPUT_DIRECTORY="$CLI_OUTDIR"
 [ -n "$CLI_THREADS" ]      && NTHREADS="$CLI_THREADS"
 [ -n "$CLI_MAX_MEMORY" ]   && MAX_MEMORY="$CLI_MAX_MEMORY"
+[ -n "$CLI_SLURM_QUEUE" ]  && SLURM_QUEUE="$CLI_SLURM_QUEUE"
+[ -n "$CLI_SLURM_OPTIONS" ] && SLURM_OPTIONS="$CLI_SLURM_OPTIONS"
+[ -n "$CLI_QUEUE_SIZE" ]   && QUEUE_SIZE="$CLI_QUEUE_SIZE"
 [ -n "$CLI_RENAME" ]       && RENAME_FILE="$CLI_RENAME"
 [ -n "$CLI_REFERENCE" ]    && REFERENCE_FILE="$CLI_REFERENCE"
 [ -n "$CLI_AA_DB" ]        && AA_DB="$CLI_AA_DB"
@@ -413,11 +435,25 @@ fi
 
 
 ##### Validate before launching anything #####
+#Checked first: submitting to a scheduler means Nextflow shells out to sbatch,
+#which only exists on the host. This is an architectural blocker rather than a
+#fixable input, so report it before anything about missing files.
+if [[ $PROFILE == *slurm* ]] && [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
+    abort "-p slurm cannot be used from inside the Flumina container: Nextflow
+       submits jobs with sbatch, which is not in the image.
+       Run Flumina from the host instead, with Nextflow loaded there:
+           module load nextflow apptainer
+           flumina -i ${READ_DIRECTORY} -o ${OUTPUT_DIRECTORY} -p slurm,apptainer
+       Every step still runs inside the container. Alternatively drop -p slurm
+       to run the whole pipeline within this one allocation."
+fi
+
 check_number "t" "$NTHREADS"     1 1024
 check_number "d" "$MIN_DEPTH"    0 1000000
 check_number "q" "$MIN_QUALITY"  0 1000
 check_number "f" "$MIN_FREQ"     0 1
 check_number "l" "$FLUMUT_FREQ"  0 1
+[ -n "$QUEUE_SIZE" ] && check_number "j" "$QUEUE_SIZE" 1 100000
 
 [ -d "$READ_DIRECTORY" ] || abort "Read directory not found: ${READ_DIRECTORY}
        Set it with -i, for example: flumina -i raw_reads"
@@ -446,9 +482,16 @@ fi
 #anything is installed, so it must not depend on the engine being present.
 if [ "$DRY_RUN" -eq 0 ] && ! command -v nextflow &> /dev/null; then
     abort "nextflow was not found on your PATH.
-       Install it from https://www.nextflow.io, or run Flumina through the
-       container image, which already contains it:
+       On a cluster it is usually a module:
+           module load nextflow
+       Otherwise install it from https://www.nextflow.io, or run Flumina through
+       the container image, which already contains it:
            apptainer run flumina_latest.sif -i raw_reads -o results"
+fi
+
+if [ "$DRY_RUN" -eq 0 ] && [[ $PROFILE == *slurm* ]] && ! command -v sbatch &> /dev/null; then
+    abort "-p slurm was requested but sbatch was not found on your PATH.
+       Run this from a cluster login or compute node, or drop -p slurm."
 fi
 
 if [ "$MIN_DEPTH" -lt 100 ] 2>/dev/null; then
@@ -480,6 +523,36 @@ NF_ARGS=(
 )
 
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
+#Scheduler settings are written to a generated config file rather than passed as
+#--parameters, because Nextflow rejects any --param whose value begins with a
+#dash — and scheduler options almost always do ('-A account', '--qos=...').
+#Setting the process directives directly also sidesteps config ordering: a -c
+#file is merged last, so these win over the slurm profile's defaults.
+CLUSTER_CONFIG=""
+CLUSTER_TMPDIR=""
+if [ -n "$SLURM_QUEUE" ] || [ -n "$SLURM_OPTIONS" ] || [ -n "$QUEUE_SIZE" ]; then
+    #A temporary DIRECTORY, not a temporary file: BSD mktemp only expands the
+    #X's at the end of a template, so a name like `cluster.XXXXXX.config` comes
+    #back with the X's intact and every concurrent run would share one file.
+    CLUSTER_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/flumina.XXXXXX")"
+    CLUSTER_CONFIG="${CLUSTER_TMPDIR}/cluster.config"
+    #Clean up whatever was generated however this script exits
+    trap '[ -n "$CLUSTER_TMPDIR" ] && rm -rf "$CLUSTER_TMPDIR"' EXIT INT TERM
+
+    #Single quotes are the string delimiter below, so any in the value must be escaped
+    esc_queue="${SLURM_QUEUE//\'/\\\'}"
+    esc_options="${SLURM_OPTIONS//\'/\\\'}"
+
+    {
+        echo "// Generated by flumina; not intended to be edited or kept."
+        [ -n "$SLURM_QUEUE" ]   && echo "process.queue = '${esc_queue}'"
+        [ -n "$SLURM_OPTIONS" ] && echo "process.clusterOptions = '${esc_options}'"
+        [ -n "$QUEUE_SIZE" ]    && echo "executor.queueSize = ${QUEUE_SIZE}"
+    } > "$CLUSTER_CONFIG"
+
+    NF_ARGS+=(-c "$CLUSTER_CONFIG")
+fi
+
 [ -n "$DEDUP_KEYS" ]           && NF_ARGS+=(--dedup_keys "$DEDUP_KEYS")
 [ -n "$IRMA_CONFIG" ]          && NF_ARGS+=(--irma_config "$IRMA_CONFIG")
 [ -n "$SNPGENIE" ]             && NF_ARGS+=(--snpgenie "$SNPGENIE")
@@ -515,7 +588,11 @@ cat <<startBanner
     FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
     IRMA config         : ${IRMA_CONFIG:-none}
     Execution profile   : ${PROFILE}
-    Work directory      : ${WORK_DIR}
+    Work directory      : ${WORK_DIR}$(if [[ $PROFILE == *slurm* ]]; then
+printf '\n    Scheduler queue     : %s' "${SLURM_QUEUE:-priority}"
+printf '\n    Scheduler options   : %s' "${SLURM_OPTIONS:---qos=vpru -A nadc_iav}"
+printf '\n    Max jobs at once    : %s' "${QUEUE_SIZE:-100}"
+fi)
 
 startBanner
 
@@ -523,6 +600,10 @@ startBanner
 if [ "$DRY_RUN" -eq 1 ]; then
     echo -e "Dry run, the following command would be run:\n"
     echo "nextflow ${NF_ARGS[*]}"
+    if [ -n "$CLUSTER_CONFIG" ]; then
+        echo -e "\nwhere ${CLUSTER_CONFIG} contains:\n"
+        sed 's/^/    /' "$CLUSTER_CONFIG"
+    fi
     echo
     exit 0
 fi
