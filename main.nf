@@ -251,6 +251,23 @@ process IRMA {
     script:
     """
     IRMA FLU ${r1} ${r2} ${sample}
+
+    # IRMA returns 0 even when it has failed outright: it creates its whole
+    # output skeleton (amended_consensus/, tables/, logs/ ...) and exits
+    # successfully with every directory empty. Nextflow then sees a green task,
+    # organizeIRMA.R finds no fasta to collect, and FluMut is skipped silently
+    # for want of input. The first anyone knows is a missing result days later.
+    #
+    # So check the one thing that matters — that a consensus was actually
+    # produced. Not fatal on its own, because a sample with too few flu reads
+    # legitimately assembles nothing; but if this fires for EVERY sample the
+    # cause is IRMA itself, and .command.err will say so.
+    if ! ls ${sample}/*.fasta >/dev/null 2>&1; then
+        echo "WARNING: IRMA produced no consensus sequence for ${sample}." >&2
+        echo "         A sample with too few influenza reads can do this legitimately." >&2
+        echo "         If it happens for every sample, IRMA itself failed — check this" >&2
+        echo "         task's .command.err for repeated 'exec failed' lines." >&2
+    fi
     """
 }
 
@@ -736,7 +753,10 @@ process WFABC {
  */
 process FLUMUT {
     label 'process_low'
-    publishDir "${params.outdir}/flumut", mode: params.publish_mode
+    // Published under variant_analysis/ with the rest of the interpretation:
+    // these are marker calls read alongside the amino-acid tables, not a
+    // separate kind of output.
+    publishDir "${params.outdir}/variant_analysis/flumut", mode: params.publish_mode
 
     input:
     path scripts
@@ -768,7 +788,7 @@ process FLUMUT {
 
 process FLUMUT_LOWFREQ {
     label 'process_low'
-    publishDir "${params.outdir}/flumut_lowfreq", mode: params.publish_mode
+    publishDir "${params.outdir}/variant_analysis/flumut_lowfreq", mode: params.publish_mode
 
     input:
     path scripts

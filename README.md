@@ -243,13 +243,13 @@ Results are written to the output directory given by `-o`:
 | Folder | Contents |
 |---|---|
 | `variant_analysis/` | Variant tables, amino acid changes, and summaries |
+| `variant_analysis/flumut/` | H5N1 markers found in the consensus genomes |
+| `variant_analysis/flumut_lowfreq/` | H5N1 markers found in low-frequency variants (`-l`) |
 | `IRMA-consensus-contigs/` | Per-sample consensus genomes |
 | `IRMA_results/` | Full IRMA output per sample |
 | `vcf_files/` | Per-sample GATK and LoFreq VCFs |
 | `BAM_files/` | Aligned, sorted, duplicate-marked BAMs |
 | `processed-reads/` | Trimmed reads |
-| `flumut/` | H5N1 markers found in the consensus genomes |
-| `flumut_lowfreq/` | H5N1 markers found in low-frequency variants (`-l`) |
 | `snpGenie_results/` | Per-site dN/dS estimates (`-G`) |
 | `wfabc_analysis/` | Selection coefficients and Ne estimates (`-W`) |
 | `logs/` | Per-sample tool logs, and `missing_samples.log` if any sample had no reads |

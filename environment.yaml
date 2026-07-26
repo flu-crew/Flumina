@@ -9,6 +9,7 @@ dependencies:
   - fastp=0.23.4
   - gatk4=4.5.0.0
   - irma=1.0.3
+  - parallel=20240722
   - lofreq=2.1.5
   - python=3.10.14
   - samtools=1.19
@@ -19,13 +20,6 @@ dependencies:
   - r-seqinr=4.2_30
   - r-stringr=1.5.0
   - r-foreach=1.5.2
-# coda supplies the HPD intervals runWFABC.R reports as the credible bounds on
-# each selection coefficient. Without it WFABC dies partway through the first
-# animal, after the wfabc binaries have already run.
   - r-coda=0.19_4
   - flumut=0.6.5
-# NOT snpgenie: the bioconda package pins perl-list-util, which exists only for
-# perl 5.22/5.26 and so cannot coexist with irma's perl >=5.32. SNPGenie is a
-# plain perl script whose modules (List::Util, File::Temp, Getopt::Long ...) are
-# all perl core, so the Dockerfile installs it from source against the perl
-# already in this environment.
+
