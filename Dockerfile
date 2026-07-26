@@ -90,6 +90,20 @@ RUN cd /tmp \
  && chmod 755 /usr/local/bin/wfabc_1 /usr/local/bin/wfabc_2 \
  && rm -rf wfabc.tar.gz "WFABC-${WFABC_COMMIT}"
 
+# IRMA from the CDC's own release. Bioconda stops at 1.0.3; the releases carry
+# vendored blat, minimap2, pigz and parallel, so nothing else has to be added
+# for it. Note IRMA's set_bin() prefers whatever is on PATH over its own
+# vendored copies, which is why the parallel pin in environment.yaml still
+# matters even though a good copy ships here.
+ARG IRMA_VER=1.3.5
+RUN cd /opt \
+ && curl -sSL "https://github.com/CDCgov/irma/releases/download/v${IRMA_VER}/irma-v${IRMA_VER}-universal.zip" -o irma.zip \
+ && unzip -q irma.zip \
+ && rm irma.zip \
+ && mv flu-amd irma \
+ && chmod -R +x /opt/irma/IRMA /opt/irma/LABEL /opt/irma/IRMA_RES/third_party
+ENV PATH=/opt/irma:$PATH
+
 # SNPGenie, installed from the author's source rather than bioconda. The conda
 # package depends on perl-list-util, which is built only against perl 5.22/5.26
 # and therefore cannot coexist with irma's perl >=5.32 — the solver rejects the

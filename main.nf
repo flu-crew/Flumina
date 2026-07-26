@@ -225,16 +225,15 @@ process FASTP {
 }
 
 /*
- * IRMA reads an OPTIONAL `irma_config.sh` from its current working directory —
- * that is IRMA's own behaviour, not something added here (see the
- * `[ -r "./irma_config.sh" ]` block in the IRMA script itself). Staging the
- * user's file under that exact name into the task work dir is therefore all
- * that is needed to pass through TMP, SINGLE_LOCAL_PROC and any other IRMA
- * parameter, and it works identically under Docker and Apptainer because
- * nothing inside the read-only image has to be modified.
+ * IRMA parameters (TMP, SINGLE_LOCAL_PROC, ...) come from an optional user file
+ * passed with `--external-config`.
+ *
+ * IRMA 1.0.3 used to source `./irma_config.sh` from its working directory
+ * implicitly; 1.3.5 removed that in favour of the explicit flag, so staging the
+ * file alone is no longer enough — it has to be named on the command line.
  *
  * When --irma_config is not set, an empty list is staged, which stages nothing,
- * and IRMA falls back to its module defaults.
+ * the flag is omitted, and IRMA falls back to its module defaults.
  */
 process IRMA {
     tag   "$sample"
@@ -249,8 +248,9 @@ process IRMA {
     tuple val(sample), path("${sample}"), emit: results
 
     script:
+    def cfg_arg = irma_cfg ? "--external-config irma_config.sh" : ""
     """
-    IRMA FLU ${r1} ${r2} ${sample}
+    IRMA FLU ${cfg_arg} ${r1} ${r2} ${sample}
 
     # IRMA returns 0 even when it has failed outright: it creates its whole
     # output skeleton (amended_consensus/, tables/, logs/ ...) and exits
