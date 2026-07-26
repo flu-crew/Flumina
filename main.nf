@@ -250,6 +250,14 @@ process IRMA {
     script:
     def cfg_arg = irma_cfg ? "--external-config irma_config.sh" : ""
     """
+    # IRMA 1.3.5 sizes itself with `irma-core num-procs --cap-cores-using-env`,
+    # which reads the CPU affinity mask. Under Slurm that reflects
+    # --cpus-per-task and is usually right, but affinity is not set everywhere —
+    # PBS without cgroups, or Docker's CPU quota, leave it looking like the whole
+    # machine, and IRMA would then oversubscribe the node. Stating the number
+    # Nextflow actually asked the scheduler for removes the guesswork.
+    export LOCAL_PROCS_OVERRIDE=${task.cpus}
+
     IRMA FLU ${cfg_arg} ${r1} ${r2} ${sample}
 
     # IRMA returns 0 even when it has failed outright: it creates its whole
