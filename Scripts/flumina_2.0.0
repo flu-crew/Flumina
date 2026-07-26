@@ -125,6 +125,11 @@ function print_help_menu() {
         -s : Skip a portion of Flumina. Options: '0' = skip nothing,
              'i' = skip IRMA assembly, 'm' = skip FluMut marker screening.
              These options may be combined. Default is 0
+        -C : Delete the work directory when the run finishes successfully.
+             The work directory holds every intermediate and is roughly the
+             size of the results again, so this is worth setting once a run is
+             known to work. It also discards the resume cache, so a run cleaned
+             this way cannot be continued with -R
         -R : Resume a previous run, reusing all successfully completed work
         -N : Dry run. Print the Nextflow command that would be run, then exit
 
@@ -310,6 +315,8 @@ function load_config_file() {
             CLUSTER_QUEUE|SLURM_QUEUE)     CFG_CLUSTER_QUEUE="$value" ;;
             CLUSTER_OPTIONS|SLURM_OPTIONS) CFG_CLUSTER_OPTIONS="$value" ;;
             QUEUE_SIZE)            CFG_QUEUE_SIZE="$value" ;;
+            CLEANUP)               CFG_CLEANUP="$value" ;;
+            PUBLISH_MODE)          CFG_PUBLISH_MODE="$value" ;;
             APPTAINER_CACHE)       CFG_APPTAINER_CACHE="$value" ;;
             WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
             PROFILE)               CFG_PROFILE="$value" ;;
@@ -362,6 +369,8 @@ CLUSTER_QUEUE=""
 CLUSTER_OPTIONS=""
 QUEUE_SIZE=""
 APPTAINER_CACHE=""
+CLEANUP=""
+PUBLISH_MODE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
 FLUMUT_LOWFREQ="false"
@@ -396,7 +405,7 @@ CONFIG_FILE=""
 
 #Go through input and assign input arguments to variables. Values are held aside
 #so they can be applied AFTER the config file, letting flags win over the file.
-while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:GWRNh-:" opt; do
+while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
     case ${opt} in
       i ) CLI_READS=$OPTARG ;;
       o ) CLI_OUTDIR=$OPTARG ;;
@@ -434,6 +443,7 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:GWRNh-:" opt; do
             fi
         fi
         ;;
+      C ) CLI_CLEANUP=1 ;;
       G ) CLI_SNPGENIE=1 ;;
       W ) CLI_WFABC=1 ;;
       R ) RESUME="-resume" ;;
@@ -509,6 +519,7 @@ if [ -n "$CONFIG_FILE" ]; then
     [ -n "$CFG_CLUSTER_OPTIONS" ]     && CLUSTER_OPTIONS="$CFG_CLUSTER_OPTIONS"
     [ -n "$CFG_QUEUE_SIZE" ]        && QUEUE_SIZE="$CFG_QUEUE_SIZE"
     [ -n "$CFG_APPTAINER_CACHE" ]   && APPTAINER_CACHE="$CFG_APPTAINER_CACHE"
+    [ -n "$CFG_PUBLISH_MODE" ]      && PUBLISH_MODE="$CFG_PUBLISH_MODE"
     [ -n "$CFG_RENAME" ]            && RENAME_FILE="$CFG_RENAME"
     [ -n "$CFG_REFERENCE" ]         && REFERENCE_FILE="$CFG_REFERENCE"
     [ -n "$CFG_AA_DB" ]             && AA_DB="$CFG_AA_DB"
@@ -538,7 +549,8 @@ if [ -n "$CONFIG_FILE" ]; then
     fi
 
     for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" \
-                "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC"; do
+                "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC" \
+                "CFG_CLEANUP:CLEANUP"; do
         src="${pair%%:*}"; dest="${pair##*:}"
         if [ -n "${!src}" ]; then
             converted=$(to_bool "${!src}")
@@ -572,6 +584,7 @@ fi
 [ -n "$CLI_WORKDIR" ]      && WORK_DIR="$CLI_WORKDIR"
 [ "${CLI_SKIP_IRMA:-0}" = "1" ]   && RUN_IRMA="false"
 [ "${CLI_SKIP_FLUMUT:-0}" = "1" ] && RUN_FLUMUT="false"
+[ "${CLI_CLEANUP:-0}" = "1" ]     && CLEANUP="true"
 [ "${CLI_SNPGENIE:-0}" = "1" ]    && SNPGENIE="true"
 [ "${CLI_WFABC:-0}" = "1" ]       && WFABC="true"
 
@@ -718,6 +731,7 @@ NF_ARGS=(
 [ -n "$AA_DB" ]                && NF_ARGS+=(--aa_db "$AA_DB")
 [ -n "$METADATA" ]             && NF_ARGS+=(--metadata "$METADATA")
 [ -n "$APPTAINER_CACHE" ]      && NF_ARGS+=(--apptainer_cache "$APPTAINER_CACHE")
+[ -n "$PUBLISH_MODE" ]         && NF_ARGS+=(--publish_mode "$PUBLISH_MODE")
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
 #Scheduler settings are written to a generated config file rather than passed as
 #--parameters, because Nextflow rejects any --param whose value begins with a
@@ -737,7 +751,8 @@ function cleanup_temp_paths() {
 trap cleanup_temp_paths EXIT INT TERM
 
 CLUSTER_TMPDIR=""
-if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ]; then
+if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ] \
+   || [ "$CLEANUP" = "true" ]; then
     #A temporary DIRECTORY, not a temporary file: BSD mktemp only expands the
     #X's at the end of a template, so a name like `cluster.XXXXXX.config` comes
     #back with the X's intact and every concurrent run would share one file.
@@ -755,6 +770,9 @@ if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ];
         [ -n "$CLUSTER_QUEUE" ]   && echo "process.queue = '${esc_queue}'"
         [ -n "$CLUSTER_OPTIONS" ] && echo "process.clusterOptions = '${esc_options}'"
         [ -n "$QUEUE_SIZE" ]    && echo "executor.queueSize = ${QUEUE_SIZE}"
+        #cleanup is a top-level config setting, not a param, so it can only be
+        #set through a config file — not with --cleanup on the command line.
+        [ "$CLEANUP" = "true" ] && echo "cleanup = true"
     } > "$CLUSTER_CONFIG"
 
     NF_ARGS+=(-c "$CLUSTER_CONFIG")

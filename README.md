@@ -166,6 +166,22 @@ All of Flumina's arguments are laid out in the help menu, accessed with `flumina
 
 If a run fails partway through, fix the cause and re-run with `-R` to resume rather than starting over. This only works if the work directory is still there, so do not delete it until you are happy with the results.
 
+# Disk use
+
+The work directory holds every intermediate file and ends up roughly the size of the results again, so a run costs about twice what you keep. Three things help:
+
+`-C` deletes the work directory once a run completes successfully. Use it for production runs; leave it off while you are still getting a run to work, because it discards the resume cache too.
+
+`PUBLISH_MODE="link"` in the config publishes results as hard links instead of copies, so results and work share the same data and a run takes about half the space. It only works when the output and work directories are on the same filesystem. Do not use `symlink` — deleting the work directory would leave broken links.
+
+Old runs can be cleared at any time with Nextflow's own command, which understands what is still needed:
+
+```
+nextflow clean -f -before <run-name>
+```
+
+`nextflow log` lists the run names. Add `-n` to any of these to see what would be removed without removing it.
+
 # Input files
 
 ## Create renaming file
