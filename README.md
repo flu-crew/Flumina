@@ -165,6 +165,10 @@ The "Sample" column: What you would like your sample name to be. This will be us
 
 Flumina looks for `file_rename.csv` in your working directory by default; point it elsewhere with `-n`.
 
+Reads are found recursively, so per-sample or per-project subdirectories are fine, and both compressed (`.fastq.gz`, `.fq.gz`) and uncompressed (`.fastq`, `.fq`) files are accepted. Mates are identified by the usual markers — `_R1_`, `_R1.`, `.R1.`, `-R1-`, `_1.` — and if a pair carries none of them but exactly two files match, they are taken in sorted order and a warning is printed saying so.
+
+A sample listed in the CSV with no usable reads does **not** stop the run: it is reported as a warning, recorded in `logs/missing_samples.log` with the reason, and the remaining samples carry on. Libraries that fail to sequence are routine, and losing every good sample to one bad row helps nobody. If *no* sample has usable reads the run does stop, since that means something is wrong with the read directory or the CSV rather than with one library.
+
 ### Sample metadata
 
 A CSV of metadata to join with the amino acid data and summary data. This file must have at least a column titled "Sample" [capital S] to make the join possible. Any other column may be used to group the summaries with `-g`, for example a host column to compare cow versus bird versus poultry. Flumina looks for `metadata.csv` by default; point it elsewhere with `-m`.
@@ -469,7 +473,7 @@ Results are written to the output directory given by `-o`:
 | `snpGenie_results/` | Per-site dN/dS estimates (with `-G`) |
 | `reference_gtf/` | Per-segment GTF and FASTA built for SNPGenie (with `-G`) |
 | `wfabc_analysis/` | Selection coefficients and Ne estimates (with `-W`) |
-| `logs/` | Per-sample tool logs |
+| `logs/` | Per-sample tool logs, and `missing_samples.log` if any sample had no usable reads |
 | `pipeline_info/` | Run timeline, resource report, trace, and the exact config used |
 
 # Upcoming features
