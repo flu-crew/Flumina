@@ -101,6 +101,21 @@ def findReadPair(read_dir, prefix, sample_name) {
                   "fallback needs exactly two files"]
 }
 
+/*
+ * Read a boolean parameter without trusting its type.
+ *
+ * Nextflow used to coerce a command-line `--flag false` to a real boolean by
+ * matching the type of the config default. From 25.x it does not: the value
+ * arrives as the STRING "false", and every non-empty string is truthy in
+ * Groovy. So `if (params.wfabc)` fires when wfabc was explicitly disabled, and
+ * worse, `--run_irma false` would silently RUN IRMA — a wrong result rather
+ * than an error. Tested directly: 24.10.4 coerces, 26.04.3 does not.
+ */
+def asBool(value) {
+    if (value instanceof Boolean) return value
+    return value?.toString()?.trim()?.toLowerCase() in ['true', 't', 'yes', '1']
+}
+
 def helpMessage() {
     log.info """
     ##########################################################################
@@ -553,7 +568,7 @@ process R_ANALYSIS {
     path 'IRMA-consensus-contigs',  emit: irma, optional: true
 
     script:
-    def irma_step = params.run_irma
+    def irma_step = asBool(params.run_irma)
         ? "Rscript ${scripts}/organizeIRMA.R config.cfg"
         : "echo 'IRMA disabled, skipping organizeIRMA.R'"
     // Both of these are optional. When not supplied nothing is staged, so the
@@ -583,8 +598,8 @@ MIN_ALLELE_FREQUENCY="${params.min_allele_frequency}"
 MIN_ALLELE_FREQ="${params.min_allele_frequency}"
 MIN_COVERAGE="${params.min_depth}"
 DEDUP_KEYS="${params.dedup_keys}"
-DISABLE_IRMA="${params.run_irma ? 'FALSE' : 'TRUE'}"
-SNPGENIE="${params.snpgenie ? 'TRUE' : 'FALSE'}"
+DISABLE_IRMA="${asBool(params.run_irma) ? 'FALSE' : 'TRUE'}"
+SNPGENIE="${asBool(params.snpgenie) ? 'TRUE' : 'FALSE'}"
 INDIVIDUAL_COLUMN="${params.individual_column}"
 TIME_COLUMN="${params.time_column}"
 GENERATIONS_PER_TIME="${params.generations_per_time}"
@@ -829,7 +844,7 @@ workflow {
         if (!params[req]) error("Missing required parameter: --${req}  (see --help)")
     }
 
-    if (params.wfabc && !params.metadata) {
+    if (asBool(params.wfabc) && !params.metadata) {
         error("--wfabc needs --metadata: selection is estimated from allele-frequency\n" +
               "  time series, which are reconstructed by joining variants to the\n" +
               "  individual and time-point columns of the metadata.")
@@ -932,7 +947,7 @@ workflow {
 
     // Collected IRMA output directories, or an empty list when IRMA is off.
     // An empty list stages nothing, which is how an optional input is expressed.
-    irma_dirs = params.run_irma
+    irma_dirs = asBool(params.run_irma)
         ? IRMA(trimmed, irma_cfg).results.map { _s, d -> d }.collect()
         : channel.value([])
 
@@ -975,20 +990,20 @@ workflow {
     )
 
     // Needs IRMA consensus, so it can only run when IRMA ran.
-    if (params.run_irma && params.flumut) {
+    if (asBool(params.run_irma) && asBool(params.flumut)) {
         FLUMUT(file("${projectDir}/Scripts"), r.irma)
     }
 
     // Screen low-frequency variants above threshold for H5N1 markers.
     // Applies LoFreq variants to IRMA consensus sequences, creating
     // mutated pseudo-consensus for FluMut marker screening.
-    if (params.run_irma && params.flumut_lowfreq) {
+    if (asBool(params.run_irma) && asBool(params.flumut_lowfreq)) {
         FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs)
     }
 
     // Optional population-genetics analyses. Both read the config.cfg written by
     // R_ANALYSIS, which is also what sequences them after it.
-    if (params.snpgenie) {
+    if (asBool(params.snpgenie)) {
         SNPGENIE(
             file("${projectDir}/Scripts"),
             r.config,
@@ -998,7 +1013,7 @@ workflow {
         )
     }
 
-    if (params.wfabc) {
+    if (asBool(params.wfabc)) {
         WFABC(
             file("${projectDir}/Scripts"),
             r.config,

@@ -334,6 +334,43 @@ either the spaced or the dotted spelling works, but the underscore default does 
 
 ---
 
+## Nextflow version consistency (2026-07-26)
+
+The container shipped 24.10.4 while the cluster module was 26.04.3. That gap matters
+because the two run in *different* places: with `-p slurm` Nextflow runs on the HOST, so
+the cluster's version parses the config, while single-job mode uses the container's. Every
+incompatibility therefore surfaced only on the cluster, one at a time, mid-run.
+
+Nextflow's config parser became strict in 25.x. Four things broke, none of which any local
+test could have caught:
+
+| Symptom | Cause |
+|---|---|
+| `Unexpected input: '('` | `def capCpus(...)` — function definitions are no longer allowed in `nextflow.config` |
+| `If statements cannot be mixed with config statements` | `if (params.apptainer_cache)` inside the apptainer profile |
+| `` `for` loops are no longer supported `` | two `for` loops in `findReadPair` |
+| `` `gather` is not defined `` | calling a closure as `gather(x)`; the strict parser needs `gather.call(x)` |
+
+Plus two silent ones, which are the more dangerous kind:
+
+- **`executor.$local.cpus` is no longer recognised.** It was being ignored, so the local
+  executor disregarded `-t` entirely. Moved into the `standard` profile as `executor.cpus`.
+- **`--flag false` is no longer coerced to a boolean.** From 25.x it arrives as the STRING
+  `"false"`, and every non-empty string is truthy in Groovy. `--wfabc false` tripped the
+  "wfabc needs metadata" error, and worse, `--run_irma false` would have *run IRMA anyway* —
+  a wrong result rather than a failure. All boolean params now go through `asBool()`.
+
+The container is now pinned to **26.04.3**, matching the cluster module, so both paths run
+the same engine and local testing exercises what the cluster will. The config remains
+compatible with 24.x — verified on both — so nobody on an older module is stranded.
+
+**Testing note:** `docker run --read-only` makes Docker behave like Apptainer, which mounts
+its image read-only. That flag is how the `NXF_HOME` bug should have been caught locally,
+and it is worth using for any container change from here on. Docker's writable layer hides
+a whole class of failure that Apptainer will not.
+
+---
+
 ## Remaining work
 
 1. **Push the image to Docker Hub** as `chutter/flumina`, which every README instruction
