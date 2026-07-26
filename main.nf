@@ -50,11 +50,10 @@ def findReadPair(read_dir, prefix, sample_name) {
         out.unique { it.toString() }.sort { it.name }
     }
 
-    def hits = []
-    for (stem in [prefix, sample_name].findAll { it }) {
-        hits = gather(stem)
-        if (hits) break
-    }
+    // findResult rather than a for/break loop: Nextflow's strict parser (25.x+)
+    // rejects `for` loops in pipeline scripts outright.
+    def hits = [prefix, sample_name].findAll { it }
+                                    .findResult { stem -> gather.call(stem) ?: null } ?: []
 
     // Per-sample problems return a reason instead of throwing. A library that
     // failed to sequence is routine, and losing a whole run's worth of good
@@ -70,7 +69,7 @@ def findReadPair(read_dir, prefix, sample_name) {
         ['-R1-', '-R2-'], ['-R1.', '-R2.'], ['_1.',  '_2.'],
     ]
 
-    for (c in conventions) {
+    def resolved = conventions.findResult { c ->
         def r1 = hits.findAll { it.name.contains(c[0]) }
         def r2 = hits.findAll { it.name.contains(c[1]) }
         if (r1.size() == 1 && r2.size() == 1) return [r1[0], r2[0]]
@@ -79,7 +78,9 @@ def findReadPair(read_dir, prefix, sample_name) {
                           "'${c[0]}'/'${c[1]}' (${hits*.name.join(', ')}); the File value " +
                           "must identify one sample"]
         }
+        return null
     }
+    if (resolved) return resolved
 
     // Last resort, and what organizeReads.R did for every sample: with exactly
     // two files and no recognised marker, take them in sorted order. Every
