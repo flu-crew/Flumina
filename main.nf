@@ -56,11 +56,12 @@ def findReadPair(read_dir, prefix, sample_name) {
         if (hits) break
     }
 
+    // Per-sample problems return a reason instead of throwing. A library that
+    // failed to sequence is routine, and losing a whole run's worth of good
+    // samples to one bad row helps nobody — they are reported and skipped.
+    // Problems with the run as a whole still stop the pipeline.
     if (!hits) {
-        error """No reads found for '${prefix}' under ${read_dir}
-  Looked recursively for ${prefix}* and ${sample_name}* ending in ${exts.join(', ')}
-  Check that the 'File' column of your rename CSV holds the part of the file
-  name shared by both mates, excluding the read and lane markers."""
+        return [null, "no read files found matching ${prefix}* or ${sample_name}*"]
     }
 
     // Ordered most specific first. Each entry is [R1 marker, R2 marker].
@@ -74,11 +75,9 @@ def findReadPair(read_dir, prefix, sample_name) {
         def r2 = hits.findAll { it.name.contains(c[1]) }
         if (r1.size() == 1 && r2.size() == 1) return [r1[0], r2[0]]
         if (r1.size() > 1 || r2.size() > 1) {
-            error """Ambiguous reads for '${prefix}' under ${read_dir}
-  Matched ${r1.size()} R1 and ${r2.size()} R2 files using '${c[0]}'/'${c[1]}':
-${hits.collect { "    ${it}" }.join('\n')}
-  The 'File' value must identify ONE sample. If several samples share a prefix
-  (e.g. Sample_1 and Sample_10), make the value long enough to tell them apart."""
+            return [null, "matched ${r1.size()} R1 and ${r2.size()} R2 files using " +
+                          "'${c[0]}'/'${c[1]}' (${hits*.name.join(', ')}); the File value " +
+                          "must identify one sample"]
         }
     }
 
@@ -95,13 +94,10 @@ ${hits.collect { "    ${it}" }.join('\n')}
         return [hits[0], hits[1]]
     }
 
-    error """Could not identify an R1/R2 pair for '${prefix}' under ${read_dir}
-  Found ${hits.size()} files:
-${hits.collect { "    ${it}" }.join('\n')}
-  Recognised mate markers: ${conventions.collect { "${it[0]}/${it[1]}" }.join(', ')}
-  With exactly two files the pipeline falls back to sorted order, but ${hits.size()} were
-  found, so which two form the pair is ambiguous. Narrow the 'File' value, or
-  split the samples into separate directories."""
+    return [null, "found ${hits.size()} file(s) (${hits*.name.join(', ')}) but no R1/R2 " +
+                  "pair; recognised markers are " +
+                  "${conventions.collect { "${it[0]}/${it[1]}" }.join(', ')}, and sorted-order " +
+                  "fallback needs exactly two files"]
 }
 
 def helpMessage() {
@@ -847,7 +843,7 @@ workflow {
      */
     read_dir = file(params.read_directory)
 
-    samples = channel
+    parsed = channel
         .fromPath(params.rename_file)
         .splitCsv(header: true, strip: true)
         .map { row ->
@@ -858,7 +854,48 @@ workflow {
             if (!pref || !name) error "Bad row in ${params.rename_file}: ${row}"
 
             def (r1, r2) = findReadPair(read_dir, pref, name)
-            tuple(name, r1, r2)
+            // findReadPair returns [null, reason] for a sample it cannot pair
+            if (r1 == null) {
+                log.warn "Skipping sample '${name}' (${pref}): ${r2}"
+                return [name, pref, null, r2]
+            }
+            [name, pref, r1, r2]
+        }
+
+    /*
+     * Samples with no usable reads are dropped rather than fatal. A library
+     * that failed to sequence is an ordinary occurrence, and there is no reason
+     * for it to cost the run every other sample. They are recorded in
+     * logs/missing_samples.log so the omission is on paper rather than only in
+     * the console scrollback.
+     */
+    by_status = parsed.branch { _name, _pref, r1, _info ->
+        found:   r1 != null
+        missing: r1 == null
+    }
+
+    by_status.missing
+        .map { name, pref, _r1, reason -> "${name}\t${pref}\t${reason}" }
+        .collectFile(
+            name:     'missing_samples.log',
+            storeDir: "${params.outdir}/logs",
+            // No trailing newline: newLine:true supplies the separator, and a
+            // seed ending in one leaves a blank line under the header.
+            seed:     "# Samples in ${params.rename_file} with no usable read pair\n" +
+                      "# Written by Flumina ${workflow.manifest.version}\n" +
+                      "Sample\tFile\tReason",
+            newLine:  true,
+            sort:     true
+        )
+
+    samples = by_status.found
+        .map { name, _pref, r1, r2 -> tuple(name, r1, r2) }
+        .ifEmpty {
+            error """No samples had a usable read pair, so there is nothing to process.
+  Every row in ${params.rename_file} was skipped — see the warnings above and
+  ${params.outdir}/logs/missing_samples.log
+  A whole-run failure like this usually means --read_directory points at the
+  wrong place, or the 'File' column does not match the actual file names."""
         }
 
     /*
