@@ -14,6 +14,96 @@
 
 nextflow.enable.dsl = 2
 
+/*
+ * Locate the R1/R2 pair for one prefix from the rename CSV.
+ *
+ * Sequencing cores hand back reads in more shapes than one glob can cover:
+ * nested per-sample or per-project directories from bcl2fastq, and several
+ * mate-marker conventions. The original pattern here was a single
+ * non-recursive `<prefix>*_R1_*.fastq.gz`, which silently found nothing for
+ * anything nested — the commonest layout of the lot.
+ *
+ * Files are gathered recursively, then the mate markers are tried in order of
+ * decreasing specificity, so `_R1_` wins over a bare `_1` and a file like
+ * SAMPLE_S1_L001_R1_001.fastq.gz cannot be mistaken for its own mate.
+ */
+def findReadPair(read_dir, prefix, sample_name) {
+    // Uncompressed fastq is accepted as well as gzipped: the Snakemake-era
+    // organizeReads.R took fastq/fq/fastq.gz/fq.gz, and dropping that would
+    // quietly break anyone whose reads are not compressed.
+    def exts = ['fastq.gz', 'fq.gz', 'fastq', 'fq']
+
+    // Tried in order. The Sample column is a fallback because reads are often
+    // already renamed by the time the pipeline is re-run over them, in which
+    // case the File value no longer appears in any filename — another
+    // behaviour inherited from organizeReads.R.
+    def gather = { String stem ->
+        def out = []
+        exts.each { ext ->
+            // Both globs are needed: `**` does not match zero directories, so
+            // reads directly in read_dir are missed by the recursive form alone.
+            ["${read_dir}/${stem}*.${ext}", "${read_dir}/**/${stem}*.${ext}"].each { pattern ->
+                def found = file(pattern)
+                if (found) out += (found instanceof List ? found : [found])
+            }
+        }
+        out.unique { it.toString() }.sort { it.name }
+    }
+
+    def hits = []
+    for (stem in [prefix, sample_name].findAll { it }) {
+        hits = gather(stem)
+        if (hits) break
+    }
+
+    if (!hits) {
+        error """No reads found for '${prefix}' under ${read_dir}
+  Looked recursively for ${prefix}* and ${sample_name}* ending in ${exts.join(', ')}
+  Check that the 'File' column of your rename CSV holds the part of the file
+  name shared by both mates, excluding the read and lane markers."""
+    }
+
+    // Ordered most specific first. Each entry is [R1 marker, R2 marker].
+    def conventions = [
+        ['_R1_', '_R2_'], ['_R1.', '_R2.'], ['.R1.', '.R2.'],
+        ['-R1-', '-R2-'], ['-R1.', '-R2.'], ['_1.',  '_2.'],
+    ]
+
+    for (c in conventions) {
+        def r1 = hits.findAll { it.name.contains(c[0]) }
+        def r2 = hits.findAll { it.name.contains(c[1]) }
+        if (r1.size() == 1 && r2.size() == 1) return [r1[0], r2[0]]
+        if (r1.size() > 1 || r2.size() > 1) {
+            error """Ambiguous reads for '${prefix}' under ${read_dir}
+  Matched ${r1.size()} R1 and ${r2.size()} R2 files using '${c[0]}'/'${c[1]}':
+${hits.collect { "    ${it}" }.join('\n')}
+  The 'File' value must identify ONE sample. If several samples share a prefix
+  (e.g. Sample_1 and Sample_10), make the value long enough to tell them apart."""
+        }
+    }
+
+    // Last resort, and what organizeReads.R did for every sample: with exactly
+    // two files and no recognised marker, take them in sorted order. Every
+    // convention in use puts the first mate first alphabetically, so this is
+    // usually right — but it is a guess, so say so rather than let a silent
+    // mate swap through.
+    if (hits.size() == 2) {
+        log.warn """Reads for '${prefix}' carry no recognised mate marker; assuming
+  sorted order:  R1 = ${hits[0].name}
+                 R2 = ${hits[1].name}
+  Check that is correct — the pipeline cannot verify it."""
+        return [hits[0], hits[1]]
+    }
+
+    error """Could not identify an R1/R2 pair for '${prefix}' under ${read_dir}
+  Found ${hits.size()} files:
+${hits.collect { "    ${it}" }.join('\n')}
+  Recognised mate markers: ${conventions.collect { "${it[0]}/${it[1]}" }.join(', ')}
+  With exactly two files the pipeline falls back to sorted order, but ${hits.size()} were
+  found, so which two form the pair is ambiguous. Narrow the 'File' value, or
+  split the samples into separate directories."""
+}
+
 def helpMessage() {
     log.info """
     ##########################################################################
@@ -767,10 +857,30 @@ workflow {
             def name = row.Sample?.toString()?.trim()
             if (!pref || !name) error "Bad row in ${params.rename_file}: ${row}"
 
-            def r1 = file("${read_dir}/${pref}*_R1_*.fastq.gz")
-            def r2 = file("${read_dir}/${pref}*_R2_*.fastq.gz")
-            if (!r1 || !r2) error "No read pair found for '${pref}' in ${read_dir}"
-            tuple(name, r1 instanceof List ? r1[0] : r1, r2 instanceof List ? r2[0] : r2)
+            def (r1, r2) = findReadPair(read_dir, pref, name)
+            tuple(name, r1, r2)
+        }
+
+    /*
+     * One row per sample. organizeReads.R allowed several rows for the same
+     * Sample and wrote them out as _L001_, _L002_ ... lanes; nothing here merges
+     * lanes, so duplicate Sample values would instead produce two channel
+     * entries with the same name, which then collide in every publishDir and in
+     * GATHER_SAMPLE_VCFS. That silently mixes two samples' results, so refuse
+     * the input rather than produce a corrupt run.
+     */
+    samples
+        .map { sample, _r1, _r2 -> sample }
+        .toList()
+        .map { names ->
+            def dupes = names.countBy { it }.findAll { _k, v -> v > 1 }.keySet()
+            if (dupes) {
+                error """Duplicate Sample name(s) in ${params.rename_file}: ${dupes.join(', ')}
+  Each Sample must appear once. Flumina does not merge lanes: if one sample was
+  sequenced across several lanes or runs, concatenate those fastq files first
+  and give the result a single row."""
+            }
+            names
         }
 
     ref = PREPARE_REFERENCE(file(params.reference)).index
