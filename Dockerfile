@@ -50,7 +50,14 @@ ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC"
 # Installed after the conda layer so bumping it does not force that layer, which
 # is the slow one, to rebuild.
 USER root
-ARG NXF_VER=24.10.4
+# Pinned to match the Nextflow commonly available as a cluster module. This
+# matters more than it looks: with `-p slurm` Nextflow runs on the HOST, so a
+# cluster's version parses the config while the container's version runs the
+# single-job path. When the two diverged (24.10.4 here, 26.04.3 on the cluster)
+# every incompatibility surfaced only on the cluster, one at a time — the strict
+# config parser introduced in 25.x rejects `def` functions, `if` statements and
+# `for` loops, and stopped coercing `--flag false` to a boolean.
+ARG NXF_VER=26.04.3
 RUN NXF_VER=${NXF_VER} curl -s https://get.nextflow.io | bash \
  && mv nextflow /usr/local/bin/nextflow \
  && chmod 755 /usr/local/bin/nextflow \
