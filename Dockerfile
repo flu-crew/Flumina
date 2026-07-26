@@ -114,6 +114,13 @@ COPY example_file_rename.csv example_metadata.csv config.cfg irma_config.sh /opt
 COPY job_script_example_config.sh job_script_example_arguments.sh /opt/flumina/
 COPY Scripts /opt/flumina/Scripts
 RUN chmod -R +x /opt/flumina/Scripts
+
+# Stamp when this image was built. The version string alone cannot distinguish
+# two builds of the same version, so a stale cached .sif reports exactly what a
+# fresh one does — which is a genuinely expensive thing to debug remotely. This
+# sits after the COPY layers above, so any change to the pipeline invalidates it
+# and the stamp is rewritten.
+RUN date -u '+%Y-%m-%d %H:%M UTC' > /opt/flumina/BUILD_DATE
 USER $MAMBA_USER
 
 # FLUMINA_CONTAINER tells the launcher it is already inside the image, so it

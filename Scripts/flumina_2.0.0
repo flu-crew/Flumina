@@ -175,14 +175,19 @@ function export_pipeline() {
 
 Flumina ${VERSION} was copied to ${dest}
 
-To submit each step as its own cluster job, put it on your PATH and run from the
-host, with Nextflow loaded there:
+To submit each step as its own cluster job, run it from the host with Nextflow
+loaded there — call it by path, so there is nothing to export first:
 
     module load nextflow apptainer
-    export PATH="\$(cd "${dest}/Scripts" && pwd):\$PATH"
-    flumina -i raw_reads -o results -p slurm,apptainer -w /scratch/\$USER/flumina
+    ${dest}/Scripts/flumina -c config.cfg -p slurm,apptainer
 
-Every step still runs inside the container. Nothing else needs to be downloaded.
+Every step still runs inside the container. Nothing else needs downloading, and
+no environment variables need setting: the converted image is cached under the
+work directory, which is already on storage every compute node can reach.
+
+If you would rather type just 'flumina', add it to your PATH once:
+
+    export PATH="\$(cd "${dest}/Scripts" && pwd):\$PATH"
 
 exportDone
     exit 0
@@ -305,6 +310,7 @@ function load_config_file() {
             CLUSTER_QUEUE|SLURM_QUEUE)     CFG_CLUSTER_QUEUE="$value" ;;
             CLUSTER_OPTIONS|SLURM_OPTIONS) CFG_CLUSTER_OPTIONS="$value" ;;
             QUEUE_SIZE)            CFG_QUEUE_SIZE="$value" ;;
+            APPTAINER_CACHE)       CFG_APPTAINER_CACHE="$value" ;;
             WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
             PROFILE)               CFG_PROFILE="$value" ;;
             #Snakemake-era settings that Nextflow handles itself
@@ -355,6 +361,7 @@ DEDUP_KEYS=""
 CLUSTER_QUEUE=""
 CLUSTER_OPTIONS=""
 QUEUE_SIZE=""
+APPTAINER_CACHE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
 FLUMUT_LOWFREQ="false"
@@ -433,7 +440,13 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:GWRNh-:" opt; do
       N ) DRY_RUN=1 ;;
       - )
         if [[ "$OPTARG" == "version" ]]; then
-            echo "Flumina v${VERSION}"
+            #The build stamp only exists in the container image. Printing it
+            #turns "am I running a stale .sif?" into something answerable.
+            if [ -r "${FLUMINA_HOME}/BUILD_DATE" ]; then
+                echo "Flumina v${VERSION} (image built $(cat "${FLUMINA_HOME}/BUILD_DATE"))"
+            else
+                echo "Flumina v${VERSION}"
+            fi
             exit 1
         elif [[ "$OPTARG" == "help" ]]; then
             print_help_menu
@@ -465,6 +478,22 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:GWRNh-:" opt; do
     esac
 done
 
+#getopts stops at the first non-option argument, and at a bare '--', leaving the
+#rest unparsed. Ignoring those silently is the worst outcome: a run that looks
+#like it accepted your settings but did not. A stray '--' is the common way to
+#land here, since some container runtimes suggest it for passing arguments
+#through.
+shift $((OPTIND - 1))
+if [ "$#" -gt 0 ]; then
+    echo >&2 -e "\nERROR: These arguments were not understood: $*"
+    echo >&2 "       Flumina takes only the flags below, each with its value, e.g."
+    echo >&2 "           flumina -i raw_reads -o results"
+    echo >&2 "       If you passed a '--' before them, remove it: arguments after the"
+    echo >&2 "       image name already reach Flumina directly, and the '--' stops them"
+    echo >&2 "       being read."
+    print_help_menu
+fi
+
 
 #Apply the configuration file, if there is one
 if [ -n "$CONFIG_FILE" ]; then
@@ -479,6 +508,7 @@ if [ -n "$CONFIG_FILE" ]; then
     [ -n "$CFG_CLUSTER_QUEUE" ]       && CLUSTER_QUEUE="$CFG_CLUSTER_QUEUE"
     [ -n "$CFG_CLUSTER_OPTIONS" ]     && CLUSTER_OPTIONS="$CFG_CLUSTER_OPTIONS"
     [ -n "$CFG_QUEUE_SIZE" ]        && QUEUE_SIZE="$CFG_QUEUE_SIZE"
+    [ -n "$CFG_APPTAINER_CACHE" ]   && APPTAINER_CACHE="$CFG_APPTAINER_CACHE"
     [ -n "$CFG_RENAME" ]            && RENAME_FILE="$CFG_RENAME"
     [ -n "$CFG_REFERENCE" ]         && REFERENCE_FILE="$CFG_REFERENCE"
     [ -n "$CFG_AA_DB" ]             && AA_DB="$CFG_AA_DB"
@@ -687,6 +717,7 @@ NF_ARGS=(
 #optional handling in main.nf.
 [ -n "$AA_DB" ]                && NF_ARGS+=(--aa_db "$AA_DB")
 [ -n "$METADATA" ]             && NF_ARGS+=(--metadata "$METADATA")
+[ -n "$APPTAINER_CACHE" ]      && NF_ARGS+=(--apptainer_cache "$APPTAINER_CACHE")
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
 #Scheduler settings are written to a generated config file rather than passed as
 #--parameters, because Nextflow rejects any --param whose value begins with a
@@ -694,15 +725,26 @@ NF_ARGS=(
 #Setting the process directives directly also sidesteps config ordering: a -c
 #file is merged last, so these win over the slurm profile's defaults.
 CLUSTER_CONFIG=""
+#Temporary directories this run creates, removed however the script exits. One
+#handler for all of them, since bash keeps only the last trap per signal.
+TEMP_PATHS=()
+function cleanup_temp_paths() {
+    local p
+    for p in "${TEMP_PATHS[@]}"; do
+        [ -n "$p" ] && rm -rf "$p"
+    done
+}
+trap cleanup_temp_paths EXIT INT TERM
+
 CLUSTER_TMPDIR=""
 if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ]; then
     #A temporary DIRECTORY, not a temporary file: BSD mktemp only expands the
     #X's at the end of a template, so a name like `cluster.XXXXXX.config` comes
     #back with the X's intact and every concurrent run would share one file.
     CLUSTER_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/flumina.XXXXXX")"
+    TEMP_PATHS+=("$CLUSTER_TMPDIR")
     CLUSTER_CONFIG="${CLUSTER_TMPDIR}/cluster.config"
     #Clean up whatever was generated however this script exits
-    trap '[ -n "$CLUSTER_TMPDIR" ] && rm -rf "$CLUSTER_TMPDIR"' EXIT INT TERM
 
     #Single quotes are the string delimiter below, so any in the value must be escaped
     esc_queue="${CLUSTER_QUEUE//\'/\\\'}"
@@ -776,6 +818,29 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
+
+#Nextflow creates plugins/ and tmp/ under NXF_HOME the moment it starts, so
+#NXF_HOME must be writable. The image bakes the framework into /opt/nextflow so
+#it never has to download it at run time — but Apptainer mounts the image
+#READ-ONLY, and no amount of chmod at build time changes that. Docker hides the
+#problem behind its writable layer, which is why this only ever fails under
+#Apptainer.
+#
+#So: build a writable NXF_HOME per run and point it at the baked framework by
+#symlink. Nothing is copied (the framework is 33 MB), nothing is downloaded, and
+#the read-only image is never written to.
+if [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
+    BAKED_NXF_HOME="${NXF_HOME:-/opt/nextflow}"
+    RUN_NXF_HOME="$(mktemp -d "${TMPDIR:-/tmp}/flumina-nxf.XXXXXX")" || \
+        abort "Could not create a writable Nextflow home under ${TMPDIR:-/tmp}"
+    TEMP_PATHS+=("$RUN_NXF_HOME")
+
+    if [ -d "${BAKED_NXF_HOME}/framework" ]; then
+        ln -s "${BAKED_NXF_HOME}/framework" "${RUN_NXF_HOME}/framework"
+    fi
+    mkdir -p "${RUN_NXF_HOME}/plugins" "${RUN_NXF_HOME}/tmp"
+    export NXF_HOME="$RUN_NXF_HOME"
+fi
 
 echo -e "Beginning the Flumina pipeline ... \n"
 
