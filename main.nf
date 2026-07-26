@@ -248,7 +248,7 @@ process IRMA {
     tuple val(sample), path("${sample}"), emit: results
 
     script:
-    def cfg_arg = irma_cfg ? "--external-config irma_config.sh" : ""
+    def cfg_arg = irma_cfg ? "--external-config run_irma_config.sh" : ""
     """
     # IRMA 1.3.5 sizes itself with `irma-core num-procs --cap-cores-using-env`,
     # which reads the CPU affinity mask. Under Slurm that reflects
@@ -257,6 +257,34 @@ process IRMA {
     # machine, and IRMA would then oversubscribe the node. Stating the number
     # Nextflow actually asked the scheduler for removes the guesswork.
     export LOCAL_PROCS_OVERRIDE=${task.cpus}
+
+    # TMP in an IRMA config must be an ABSOLUTE path that already exists.
+    #
+    # IRMA builds its working path straight from it —
+    #     ppath="\$TMP"/<user>/IRMAv<version>/<run>-<token>
+    # — never creates it, and changes directory as it works, so a relative TMP
+    # stops resolving partway through. Either mistake produces the same silent
+    # failure: reads are counted, then the match stage emits nothing, every
+    # table and consensus is empty, and IRMA still exits 0. Measured on one
+    # sample: relative TMP gave 0 segments, absolute gave all 8.
+    #
+    # The staged config is a symlink into another directory, so rewrite a copy.
+    if [ -f irma_config.sh ]; then
+        cp irma_config.sh run_irma_config.sh
+        irma_tmp=\$(sed -n 's/^[[:space:]]*TMP=//p' run_irma_config.sh | tail -1 | tr -d "\\"'")
+        if [ -n "\$irma_tmp" ]; then
+            case "\$irma_tmp" in
+                /*) ;;
+                *)  irma_tmp="\$PWD/\$irma_tmp" ;;
+            esac
+            mkdir -p "\$irma_tmp" || {
+                echo "ERROR: TMP from irma_config.sh cannot be created: \$irma_tmp" >&2
+                echo "       IRMA needs this directory and will not create it itself." >&2
+                exit 1
+            }
+            sed -i "s|^[[:space:]]*TMP=.*|TMP=\$irma_tmp|" run_irma_config.sh
+        fi
+    fi
 
     IRMA FLU ${cfg_arg} ${r1} ${r2} ${sample}
 
