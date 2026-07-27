@@ -120,6 +120,34 @@ best.aa = read.csv(aa.table.path, header = TRUE, sep = ",")
 colnames(best.aa)[1] = "Gene"
 best.aa[is.na(best.aa) == TRUE] = "NA"
 
+#############################################
+#### Which reading frame the curated positions are in
+#############################################
+# The amino-acid table now carries one row per PRODUCT, so a single segment can
+# contribute rows in two reading frames (PA and PA-X, M1 and M2, NS1 and NEP).
+# The curated database keys on the SEGMENT name, and its coordinates are
+# primary-product coordinates: it lists M1 N30D and M1 T215A as virulence
+# determinants, and NS1 P42S and D92E, all of which are primary-ORF residues.
+#
+# (Details of an unpublished run were removed here.)
+#
+#
+#
+# A curated database that genuinely wants a secondary-product site can say so
+# by adding a `Product` column; when present it is matched against `product`
+# instead, and segment-keyed rows keep their primary-only behaviour.
+if ("product_primary" %in% colnames(sample.data)){
+  has.product.col = "Product" %in% colnames(best.aa)
+  if (!has.product.col){
+    n.before = nrow(sample.data)
+    sample.data = sample.data[!is.na(sample.data$product_primary) &
+                              sample.data$product_primary %in% c(TRUE, "TRUE"), ]
+    message(sprintf("Curated join restricted to primary products: %d -> %d rows. %s",
+                    n.before, nrow(sample.data),
+                    "Add a 'Product' column to the curated CSV to target M2 / NEP / PA-X / PB1-F2."))
+  }
+}
+
 #Obtains gene names
 gene.names = unique(sample.data$locus)
 
@@ -130,12 +158,21 @@ for (i in seq_along(gene.names)){
   #Subsets data
   temp.sample = sample.data[sample.data$locus %in% gene.names[i],]
   temp.fun = best.aa[best.aa$Gene %in% gene.names[i],]
-  
-  #Merges with curated database
-  merge.sample = merge(temp.sample, temp.fun, by.x = "aa_position", by.y = "Amino_Acid")  
+
+  if (nrow(temp.fun) == 0){ next }
+
+  #Merges with curated database. With a Product column the frame is explicit,
+  #so match on it as well as the position.
+  if ("Product" %in% colnames(best.aa) && "product" %in% colnames(temp.sample)){
+    merge.sample = merge(temp.sample, temp.fun,
+                         by.x = c("product", "aa_position"),
+                         by.y = c("Product",  "Amino_Acid"))
+  } else {
+    merge.sample = merge(temp.sample, temp.fun, by.x = "aa_position", by.y = "Amino_Acid")
+  }
   save.sample = rbind(save.sample, merge.sample)
 
-} #end i 
+} #end i
 
 #Save large tab delimited table of all the amino acids
 write.table(save.sample, paste0(output.directory, "/curated_amino_acids.txt"),

@@ -301,6 +301,7 @@ function load_config_file() {
             FLUMUT)                CFG_FLUMUT="$value" ;;
             FLUMUT_LOWFREQ)        CFG_FLUMUT_LOWFREQ="$value" ;;
             FLUMUT_FREQ_THRESHOLD) CFG_FLUMUT_FREQ="$value" ;;
+            FLUMUT_SUBTRACT_REFERENCE) CFG_FLUMUT_SUBREF="$value" ;;
             SNPGENIE)              CFG_SNPGENIE="$value" ;;
             WFABC)                 CFG_WFABC="$value" ;;
             INDIVIDUAL_COLUMN)     CFG_INDIVIDUAL_COLUMN="$value" ;;
@@ -375,6 +376,10 @@ RUN_IRMA="true"
 RUN_FLUMUT="true"
 FLUMUT_LOWFREQ="false"
 FLUMUT_FREQ=0.01
+# Subtract the reference's own FluMut findings from sample results. On by
+# default: the reference carries markers of its own that every sample then
+# inherits, and they drown out the real ones.
+FLUMUT_SUBREF="true"
 IRMA_CONFIG=""
 WORK_DIR="work"
 RESUME=""
@@ -549,6 +554,7 @@ if [ -n "$CONFIG_FILE" ]; then
     fi
 
     for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" \
+                "CFG_FLUMUT_SUBREF:FLUMUT_SUBREF" \
                 "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC" \
                 "CFG_CLEANUP:CLEANUP"; do
         src="${pair%%:*}"; dest="${pair##*:}"
@@ -723,6 +729,7 @@ NF_ARGS=(
     --flumut "$RUN_FLUMUT"
     --flumut_lowfreq "$FLUMUT_LOWFREQ"
     --flumut_freq_threshold "$FLUMUT_FREQ"
+    --flumut_subtract_reference "$FLUMUT_SUBREF"
 )
 
 #Passed only when present: an empty --aa_db/--metadata would set the param to an
@@ -812,6 +819,7 @@ cat <<startBanner
     IRMA assembly       : ${RUN_IRMA}
     FluMut screening    : ${RUN_FLUMUT}
     FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
+    FluMut minus ref    : ${FLUMUT_SUBREF}
     SNPGenie dN/dS      : ${SNPGENIE:-false}
     WFABC selection     : ${WFABC:-false}
     IRMA config         : ${IRMA_CONFIG:-none}

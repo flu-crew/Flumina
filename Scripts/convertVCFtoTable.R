@@ -31,8 +31,24 @@ output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_ana
 #vcf directory name, full path if not in working directory
 vcf.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/vcf_files")
 
-#name for the table 
+#name for the table
 save.name = "variant-table"
+
+# Amino-acid positions come from the actual coding intervals, not from
+# ceiling(position/3) — see Scripts/fluORFs.R for why that is wrong for M2,
+# NEP, PA-X and PB1-F2. The ORF definitions are derived from the reference
+# FASTA, NOT from reference_gtf/, because that directory is written later by
+# the optional SNPGenie step and does not exist when this script runs.
+script.dir = dirname(sub("^--file=", "",
+                         grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]))
+if (is.na(script.dir) || !nzchar(script.dir)) script.dir = "."
+source(file.path(script.dir, "fluORFs.R"))
+
+reference.path = gsub("\"", "", config$REFERENCE_FILE)
+if (length(reference.path) == 0L || !nzchar(reference.path) ||
+    reference.path == "NULL" || !file.exists(reference.path)) {
+  reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/reference.fa")
+}
 
 #output.directory = "/Volumes/Extreme_SSD/Bailey_project/variant_analysis"
 #vcf.directory = "/Volumes/Extreme_SSD/Bailey_project/vcf_files"
@@ -140,9 +156,9 @@ for (i in 1:length(vcf.files)){
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
     
-    #Finds amino acid positions from nucleotide positions
-    aa.pos = ceiling(VCF$POS[j]/3)
-    data.table::set(collect.data, i = as.integer(x), j = match("aa_position", header.data), value = aa.pos)
+    # aa_position is NOT computed here any more. It depends on which product a
+    # position codes for, and a position can code for two, so it is filled in
+    # after both callers have been read — see the annotation block below.
     #counter goes counting
     x = x + 1
   }#end j loop
@@ -259,9 +275,9 @@ for (i in 1:length(vcf.files)){
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
     
-    #Finds amino acid positions from nucleotide positions
-    aa.pos = ceiling(VCF$POS[j]/3)
-    data.table::set(collect.data, i = as.integer(x), j = match("aa_position", header.data), value = aa.pos)
+    # aa_position is NOT computed here any more. It depends on which product a
+    # position codes for, and a position can code for two, so it is filled in
+    # after both callers have been read — see the annotation block below.
     #counter goes counting
     x = x + 1
   }#end j loop
@@ -277,6 +293,37 @@ collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
 final.data = rbind(lofreq.data, collect.data)
+
+#############################################
+#### Amino-acid annotation, through the real coding intervals
+#############################################
+# Eight segments, twelve proteins. A nucleotide inside PA may also code for
+# PA-X in a different frame; one inside MP past nucleotide 756 codes for M2 and
+# for nothing else. So this expands to ONE ROW PER PRODUCT rather than assuming
+# a single reading frame starting at nucleotide 1.
+#
+# `locus` deliberately stays the SEGMENT. Everything downstream that keys on it
+# — the curated-database join in outputSummary.R above all — keeps working
+# unchanged; use the new `product` column to separate reading frames.
+
+final.data = as.data.frame(final.data, stringsAsFactors = FALSE)
+n.before   = nrow(final.data)
+
+reference = flu_read_fasta(reference.path)
+cat("Annotating amino-acid positions from", reference.path, "\n")
+print(flu_orf_table(names(reference), nchar(reference)))
+
+final.data = flu_annotate_positions(final.data, reference,
+                                    locus.col = "locus", pos.col = "position")
+
+prim = sum(final.data$product_primary, na.rm = TRUE)
+cat(sprintf("Amino-acid annotation: %d calls -> %d rows (%d primary, %d secondary ORF)\n",
+            n.before, nrow(final.data), prim, nrow(final.data) - prim))
+if (nrow(final.data) < n.before)
+  cat(sprintf("  %d call(s) fell in no coding region (UTR, stop codon or intron) and were dropped\n",
+              n.before - nrow(final.data)))
+tab = table(final.data$product)
+cat("  rows per product:", paste(names(tab), tab, sep = "=", collapse = "  "), "\n")
 
 #Saves the data
 write.csv(final.data, paste0(output.directory, "/", save.name, ".csv"),
