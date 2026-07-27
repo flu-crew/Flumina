@@ -797,15 +797,39 @@ process FLUMUT {
     input:
     path scripts
     path consensus_dir, stageAs: 'IRMA-consensus-contigs'
+    path reference
 
     output:
-    path 'markers.tsv',        emit: markers,    optional: true
-    path 'mutations.tsv',      emit: mutations,  optional: true
-    path 'literature.tsv',     emit: literature, optional: true
-    path 'flumut_report.xlsm', emit: report,     optional: true
-    path 'flumut_version.txt', emit: version
+    path 'markers.tsv',            emit: markers,    optional: true
+    path 'mutations.tsv',          emit: mutations,  optional: true
+    path 'literature.tsv',         emit: literature, optional: true
+    path 'flumut_report.xlsm',     emit: report,     optional: true
+    path '*_all.tsv',              emit: unfiltered, optional: true
+    path 'reference_*.tsv',        emit: refcalls,   optional: true
+    path 'flumut_version.txt',     emit: version
 
     script:
+    /*
+     * Screening the REFERENCE too, then removing its own findings.
+     *
+     * FluMut reports every marker a sequence carries, and the reference
+     * carries plenty. Those appear in every sample by construction and say
+     * nothing about any of them. Measured on the swine WGS run: the reference
+     * alone accounts for 84 marker rows, and across 30 samples 2,514 of 2,515
+     * reported rows were identical to it. One row in 2,515 carried
+     * information, and it was buried under the other 2,514.
+     *
+     * markers.tsv drops the rows the reference also has. mutations.tsv is a
+     * wide matrix and instead drops only the columns where EVERY sample
+     * carries the reference residue — dropping by "the reference has this
+     * marker" would throw away reversions, and a sample that LOSES a reference
+     * marker emits no marker row at all, so that table is the only place the
+     * signal exists.
+     *
+     * Nothing is discarded: raw output is kept as *_all.tsv and the
+     * reference's own calls as reference_*.tsv, so a removal can be explained.
+     */
+    def subtract = asBool(params.flumut_subtract_reference)
     """
     flumut --version > flumut_version.txt
 
@@ -819,6 +843,18 @@ process FLUMUT {
     else
         echo "no consensus sequences to screen — skipping flumut" >&2
     fi
+
+    if ${subtract} && { [ -s markers.tsv ] || [ -s mutations.tsv ]; }; then
+        Rscript ${scripts}/rename_for_flumut.R ref_batch.fasta ${reference}
+        flumut --skip-unmatch-names --skip-unknown-segments \\
+               -m ref_markers.tsv -M ref_mutations.tsv -l ref_literature.tsv \\
+               ref_batch.fasta || true
+        Rscript ${scripts}/filter_flumut_reference.R \\
+            ref_markers.tsv ref_mutations.tsv \\
+            markers.tsv mutations.tsv literature.tsv .
+    else
+        echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
+    fi
     """
 }
 
@@ -830,16 +866,20 @@ process FLUMUT_LOWFREQ {
     path scripts
     path consensus_dir, stageAs: 'IRMA-consensus-contigs'
     path vcf_dirs,      stageAs: 'vcf_files/*'
+    path reference
 
     output:
     path 'markers.tsv',        emit: markers,    optional: true
     path 'mutations.tsv',      emit: mutations,  optional: true
     path 'literature.tsv',     emit: literature, optional: true
     path 'flumut_report.xlsm', emit: report,     optional: true
+    path '*_all.tsv',          emit: unfiltered, optional: true
+    path 'reference_*.tsv',    emit: refcalls,   optional: true
     path 'flumut_version.txt', emit: version
 
     script:
     freq_pct = (params.flumut_freq_threshold * 100).toInteger()
+    def subtract = asBool(params.flumut_subtract_reference)
     """
     flumut --version > flumut_version.txt
 
@@ -878,6 +918,22 @@ process FLUMUT_LOWFREQ {
     else
         echo "no mutated sequences to screen — skipping flumut" >&2
         touch markers.tsv mutations.tsv literature.tsv
+    fi
+
+    # Same reference subtraction as FLUMUT — see the comment there for why.
+    # It matters more here, not less: applying low-frequency variants only adds
+    # findings on top of the reference background, so without this the novel
+    # calls are buried even deeper.
+    if ${subtract} && { [ -s markers.tsv ] || [ -s mutations.tsv ]; }; then
+        Rscript ${scripts}/rename_for_flumut.R ref_batch.fasta ${reference}
+        flumut --skip-unmatch-names --skip-unknown-segments \\
+               -m ref_markers.tsv -M ref_mutations.tsv -l ref_literature.tsv \\
+               ref_batch.fasta || true
+        Rscript ${scripts}/filter_flumut_reference.R \\
+            ref_markers.tsv ref_mutations.tsv \\
+            markers.tsv mutations.tsv literature.tsv .
+    else
+        echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
     fi
     """
 }
@@ -1047,14 +1103,14 @@ workflow {
 
     // Needs IRMA consensus, so it can only run when IRMA ran.
     if (asBool(params.run_irma) && asBool(params.flumut)) {
-        FLUMUT(file("${projectDir}/Scripts"), r.irma)
+        FLUMUT(file("${projectDir}/Scripts"), r.irma, file(params.reference))
     }
 
     // Screen low-frequency variants above threshold for H5N1 markers.
     // Applies LoFreq variants to IRMA consensus sequences, creating
     // mutated pseudo-consensus for FluMut marker screening.
     if (asBool(params.run_irma) && asBool(params.flumut_lowfreq)) {
-        FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs)
+        FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs, file(params.reference))
     }
 
     // Optional population-genetics analyses. Both read the config.cfg written by

@@ -61,6 +61,14 @@ output.directory = paste0(work.dir, "/wfabc_analysis")
 reference.path   = cfg("REFERENCE_FILE")
 metadata.file    = cfg("METADATA")
 
+# Shared influenza ORF definitions — the same ones convertVCFtoTable.R and
+# findAAChanges.R use. This script carries its own copy of their VCF-to-table
+# and codon-translation logic, so it needs the same correction.
+wfabc.script.dir = dirname(sub("^--file=", "",
+                               grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]))
+if (is.na(wfabc.script.dir) || !nzchar(wfabc.script.dir)) wfabc.script.dir = "."
+source(file.path(wfabc.script.dir, "fluORFs.R"))
+
 # Metadata column names (sanitised the same way read.csv does on import)
 individual.column   = make.names(cfg("INDIVIDUAL_COLUMN", "Individual"))
 time.column         = make.names(cfg("TIME_COLUMN", "Time"))
@@ -193,9 +201,11 @@ for (i in 1:length(vcf.files)){
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
 
-    #Finds amino acid positions from nucleotide positions
-    aa.pos = ceiling(VCF$POS[j]/3)
-    data.table::set(collect.data, i = as.integer(x), j = match("aa_position", header.data), value = aa.pos)
+    # aa_position is filled in after the loop, from the real coding intervals
+    # (Scripts/fluORFs.R). Unlike the main variant table this one stays at ONE
+    # ROW PER CALL — the trajectories below are keyed on locus + nucleotide
+    # position, and expanding a position into two products would duplicate the
+    # series. Only the PRIMARY product is annotated here.
     x = x + 1
   }#end j loop
 
@@ -208,6 +218,18 @@ collect.data = collect.data[collect.data$locus != 0,]
 #Sometimes the amino acid T will turn into TRUE
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
+
+#Annotate against the primary product's real coding interval. A call outside it
+#(past the M1 or NS1 stop codon, say) gets NA rather than a fabricated codon
+#number; the trajectory itself is unaffected, since that is keyed on the
+#nucleotide position.
+collect.data = as.data.frame(collect.data, stringsAsFactors = FALSE)
+wfabc.reference = flu_read_fasta(reference.path)
+collect.data = flu_annotate_positions(collect.data, wfabc.reference,
+                                      locus.col = "locus", pos.col = "position",
+                                      primary.only = TRUE)
+cat(sprintf("WFABC amino-acid annotation: %d of %d calls fall inside their primary ORF\n",
+            sum(!is.na(collect.data$aa_position)), nrow(collect.data)))
 
 #############################################
 #### Merge with metadata
@@ -238,8 +260,17 @@ for (i in 1:length(sample.names)){
 #### Find amino acid changing sites and associate the two
 #############################################
 
-reference = Biostrings::readDNAStringSet(reference.path, format = "fasta")
 sample.names = unique(all.samples$sample)
+
+# Coding sequence of each segment's primary product, built once. Codons are
+# indexed into this rather than into the raw segment; for the primary products
+# the two happen to coincide, but going through the CDS keeps this script
+# honest about where a gene actually stops.
+wfabc.cds = list()
+for (lc in names(wfabc.reference)){
+  for (o in flu_orfs(lc, nchar(wfabc.reference[[lc]])))
+    if (o$primary) wfabc.cds[[lc]] = flu_cds_seq(o, wfabc.reference[[lc]])
+}
 
 final.data = c()
 for (i in 1:length(sample.names)){
@@ -262,27 +293,29 @@ for (i in 1:length(sample.names)){
     gene.data$alternative_aa = "NA"
     gene.data$aa_changing = "NA"
 
-    #Subsets to reference for specific gene, translates
-    ref.seq = as.character(reference[names(reference) == gene.names[j]])
+    #Primary-product coding sequence for this segment
+    ref.cds = wfabc.cds[[gene.names[j]]]
+    if (is.null(ref.cds)){ new.gene = rbind(new.gene, gene.data); next }
 
     #loops through each row in the gene data to translate
     for (k in 1:nrow(gene.data)){
 
-      if (nrow(gene.data) == 0){ next }
+      #Outside the primary ORF there is no codon to report
+      cds.pos = gene.data$cds_position[k]
+      aa.pos  = gene.data$aa_position[k]
+      if (is.na(cds.pos) || is.na(aa.pos)) next
 
-      #Converts gene reference to character vector to change to alternative allele position
-      gene.char = unlist(strsplit(as.character(ref.seq), ""))
-      gene.char[gene.data$position[k]] = gene.data$alternative[k]
-      new.seq = Biostrings::DNAStringSet(paste(gene.char, collapse = ""))
+      #Swap the alternative base in at its CDS index
+      alt.cds = ref.cds
+      substr(alt.cds, cds.pos, cds.pos) = as.character(gene.data$alternative[k])
 
       #Subseqs the codons out
-      gene.data$reference_codon[k] = Biostrings::subseq(ref.seq,
-                                                        start = (gene.data$aa_position[k] - 1) * 3 + 1,
-                                                        end = (gene.data$aa_position[k] - 1) * 3 + 3 )
+      cod.start = (aa.pos - 1) * 3 + 1
+      gene.data$reference_codon[k]   = substr(ref.cds, cod.start, cod.start + 2)
+      gene.data$alternative_codon[k] = substr(alt.cds, cod.start, cod.start + 2)
 
-      gene.data$alternative_codon[k] = Biostrings::subseq(new.seq,
-                                                          start = (gene.data$aa_position[k] - 1) * 3 + 1,
-                                                          end = (gene.data$aa_position[k] - 1) * 3 + 3 )
+      if (nchar(gene.data$reference_codon[k]) < 3) next
+
       #translates codon
       gene.data$reference_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$reference_codon[k], ""))))
       gene.data$alternative_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$alternative_codon[k], ""))))

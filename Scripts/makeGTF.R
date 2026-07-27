@@ -111,6 +111,14 @@ scale_pos <- function(pos, canonical_len, actual_len) {
 #### the actual sequence length.  For spliced / alternate-ORF segments the
 #### internal coordinates are scaled proportionally when the input length
 #### differs from the canonical reference.
+####
+#### NOTE: the CDS intervals below are also expressed, independently, in
+#### Scripts/fluORFs.R, which is what convertVCFtoTable.R / findAAChanges.R /
+#### runWFABC.R use to turn a nucleotide position into an amino-acid position.
+#### The two must agree. They are kept separate because this script also emits
+#### gene / start_codon / stop_codon rows that the position mapping has no use
+#### for — but if you change a coordinate here, change it there too, and run
+#### Scripts/test_fluORFs.R, which fails when they diverge.
 #############################################
 
 make_gtf_entries <- function(seqname, seq.len, seg.type, seq.str) {
