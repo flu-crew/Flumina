@@ -830,6 +830,7 @@ process FLUMUT {
      * reference's own calls as reference_*.tsv, so a removal can be explained.
      */
     def subtract = asBool(params.flumut_subtract_reference)
+    def keep_hana = asBool(params.flumut_keep_mismatched_ha_na) ? 'TRUE' : 'FALSE'
     """
     flumut --version > flumut_version.txt
 
@@ -855,6 +856,12 @@ process FLUMUT {
     else
         echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
     fi
+
+    # Runs regardless of the subtraction above, because it answers a different
+    # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
+    # they are read against the wrong ruler AND the proteins have diverged too
+    # far for equivalence to be assumed. Internal-gene markers are unaffected.
+    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} .
     """
 }
 
@@ -880,6 +887,7 @@ process FLUMUT_LOWFREQ {
     script:
     freq_pct = (params.flumut_freq_threshold * 100).toInteger()
     def subtract = asBool(params.flumut_subtract_reference)
+    def keep_hana = asBool(params.flumut_keep_mismatched_ha_na) ? 'TRUE' : 'FALSE'
     """
     flumut --version > flumut_version.txt
 
@@ -943,6 +951,12 @@ process FLUMUT_LOWFREQ {
     else
         echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
     fi
+
+    # Runs regardless of the subtraction above, because it answers a different
+    # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
+    # they are read against the wrong ruler AND the proteins have diverged too
+    # far for equivalence to be assumed. Internal-gene markers are unaffected.
+    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} .
     """
 }
 
