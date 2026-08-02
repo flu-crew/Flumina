@@ -50,7 +50,7 @@ cat("--- coding sequences ---\n")
 for (nm in names(ref)) {
   seq.str <- ref[[nm]]
   seq.len <- nchar(seq.str)
-  for (o in flu_orfs(nm, seq.len)) {
+  for (o in flu_orfs_for(nm, seq.str)) {
     cds   <- flu_cds_seq(o, seq.str)
     label <- sprintf("%s / %-7s %4d aa", nm, o$gene, nchar(cds) %/% 3)
 
@@ -78,7 +78,7 @@ for (nm in names(ref)) {
 cat("\n--- position mapping ---\n")
 for (nm in names(ref)) {
   seq.len <- nchar(ref[[nm]])
-  for (o in flu_orfs(nm, seq.len)) {
+  for (o in flu_orfs_for(nm, ref[[nm]])) {
     lab <- sprintf("%s / %s", nm, o$gene)
 
     # Every CDS base must map to exactly one codon, monotonically increasing.
@@ -118,7 +118,7 @@ if (!is.na(gtf.dir) && dir.exists(gtf.dir)) {
     gp <- file.path(gtf.dir, paste0(nm, ".gtf"))
     if (!file.exists(gp)) { cat("  (no GTF for", nm, ")\n"); next }
 
-    mine <- do.call(rbind, lapply(flu_orfs(nm, nchar(ref[[nm]])), function(o)
+    mine <- do.call(rbind, lapply(flu_orfs_for(nm, ref[[nm]]), function(o)
       data.frame(gene = o$gene, start = o$exons$start, end = o$exons$end,
                  stringsAsFactors = FALSE)))
     mine <- mine[order(mine$gene, mine$start), ]

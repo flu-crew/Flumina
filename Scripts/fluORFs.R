@@ -71,7 +71,7 @@ flu_scale_pos <- function(pos, canonical_len, actual_len) {
 # Coordinates exclude the stop codon, matching the GTF convention makeGTF.R
 # writes. A variant inside a stop codon therefore maps to no product, which is
 # reported rather than rounded into the last real codon.
-flu_orfs <- function(seq.name, seq.len, seg.type = NULL) {
+flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
 
   if (is.null(seg.type)) seg.type = flu_segment_type(seq.name)
   if (is.na(seg.type))   seg.type = "UNKNOWN"
@@ -134,6 +134,68 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL) {
   }
 
   list(list(gene = seq.name, exons = ex(1, seq.len - 3), primary = TRUE))
+}
+
+# Wrapper: build the canonical layout, then pull every CDS end back to the first
+# in-frame stop when the sequence is available. Callers that have the reference
+# should always pass it.
+flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
+  n = nchar(seq.str)
+  orfs = flu_orfs(seq.name, n, seg.type)
+  lapply(orfs, function(o) {
+    ex = o$exons
+    # Run the LAST exon out to the end of the segment before trimming, so the
+    # stop search can extend as well as shorten. The canonical end is only a
+    # starting guess: NS1 needed extending 657 -> 690 on the H5N1 reference and
+    # shortening on others. Trimming alone silently kept the short answer.
+    ex$end[nrow(ex)] = n
+    o$exons = flu_trim_to_stop(seq.str, ex)
+    o
+  })
+}
+
+#############################################
+#### Trimming CDS ends to the real stop codon
+#############################################
+
+# The canonical coordinates give the START of each product and its splice
+# donor/acceptor sites, which are structurally conserved. They do NOT reliably
+# give the END: NS1 and PA-X have strain-variable C-terminal lengths that are
+# not proportional to segment length. Both the swine H3N2 and cow H5N1
+# references have an 838 nt NS segment, yet NS1 is 219 aa in one and 230 in the
+# other; PA-X is likewise 232 aa in one and the full-length 252 in the other.
+# Scaling the canonical end truncates the protein and every codon number past
+# the cut is then wrong.
+#
+# So: take the start and the splice sites from the canonical layout, and find
+# the end in the sequence itself — the first in-frame stop.
+flu_trim_to_stop <- function(seq.str, exons) {
+  cds = paste(mapply(function(s, e) substr(seq.str, s, e), exons$start, exons$end),
+              collapse = "")
+  n = nchar(cds)
+  stop.at = NA_integer_
+  i = 1L
+  while (i + 2L <= n) {
+    if (substr(cds, i, i + 2L) %in% c("TAA", "TAG", "TGA")) { stop.at = i; break }
+    i = i + 3L
+  }
+  keep = if (is.na(stop.at)) n - (n %% 3L) else stop.at - 1L
+  if (keep <= 0) return(exons)
+
+  out = exons[0, , drop = FALSE]
+  used = 0L
+  for (k in seq_len(nrow(exons))) {
+    len = exons$end[k] - exons$start[k] + 1L
+    if (used + len <= keep) {
+      out = rbind(out, exons[k, , drop = FALSE]); used = used + len
+    } else {
+      need = keep - used
+      if (need > 0) out = rbind(out, data.frame(start = exons$start[k],
+                                                end   = exons$start[k] + need - 1L))
+      break
+    }
+  }
+  out
 }
 
 #############################################
@@ -237,7 +299,7 @@ flu_annotate_positions <- function(dat, ref, locus.col = "locus",
       out[[length(out) + 1L]] = sub
       next
     }
-    orfs = flu_orfs(lc, nchar(ref[[lc]]))
+    orfs = flu_orfs_for(lc, ref[[lc]])
     if (primary.only) orfs = Filter(function(o) o$primary, orfs)
 
     for (o in orfs) {
