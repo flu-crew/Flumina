@@ -900,7 +900,11 @@ process FLUMUT_LOWFREQ {
         exit 0
     fi
 
-    Rscript ${scripts}/apply_lofreq_to_consensus.R mutated.fasta ${params.flumut_freq_threshold} \$r_args
+    # Reference passed explicitly: the low-frequency screen paints LoFreq calls
+    # onto the REFERENCE, not the consensus, because LoFreq's coordinates are
+    # the reference's and IRMA's consensus is built de novo. See the script header.
+    Rscript ${scripts}/apply_lofreq_to_consensus.R mutated.fasta ${params.flumut_freq_threshold} \\
+        ${reference} \$r_args
 
     if [ ! -s mutated.fasta ]; then
         echo "no low-frequency variants (AF >= ${freq_pct}%) found — skipping flumut" >&2
@@ -908,7 +912,11 @@ process FLUMUT_LOWFREQ {
         exit 0
     fi
 
-    Rscript ${scripts}/rename_for_flumut.R batch.fasta mutated.fasta
+    # No rename step here: apply_lofreq_to_consensus.R already writes
+    # >sample_SEGMENT headers. rename_for_flumut.R takes the sample name from
+    # the FILENAME, so handing it one combined FASTA renamed every sample to
+    # "mutated" and lost sample identity completely.
+    cp mutated.fasta batch.fasta
 
     if [ -s batch.fasta ]; then
         flumut --skip-unmatch-names --skip-unknown-segments \\
