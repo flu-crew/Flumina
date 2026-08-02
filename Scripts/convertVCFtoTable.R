@@ -295,6 +295,58 @@ collect.data$reference[collect.data$reference == "TRUE"] = "T"
 final.data = rbind(lofreq.data, collect.data)
 
 #############################################
+#### Reconciling the two callers
+#############################################
+# (Details of an unpublished run were removed here.)
+#
+#
+#
+#
+#
+#
+# (Details of an unpublished run were removed here.)
+#
+#
+#
+#
+# Nothing existing is rewritten. `allele_frequency` keeps exactly what each
+# caller reported, because silently changing what a published column means is
+# worse than the situation it would fix. Three columns are ADDED so that every
+# downstream consumer stops having to work this out for itself:
+#
+#   variant_id       identical for every row describing the same change
+#   af_type          "fraction" or "genotype" — what allele_frequency IS
+#   allele_fraction  the best available true fraction: LoFreq's own value, or
+#                    LoFreq's borrowed for a matching GATK4 row, NA when only
+#                    GATK4 saw it and there is nothing to borrow
+#
+# Run BEFORE the amino-acid annotation below, which expands to one row per
+# product. After that expansion a variant_id legitimately appears once per
+# product (the same nucleotide read in two frames), so dedupe on
+# variant_id + product, never variant_id alone.
+
+final.data$variant_id = paste(final.data$sample, final.data$locus,
+                              final.data$position, final.data$alternative,
+                              sep = "|")
+final.data$af_type = ifelse(final.data$method == "LoFreq", "fraction", "genotype")
+
+is.lofreq  = final.data$method == "LoFreq"
+lofreq.af  = stats::setNames(as.numeric(final.data$allele_frequency[is.lofreq]),
+                             final.data$variant_id[is.lofreq])
+final.data$allele_fraction = ifelse(is.lofreq,
+                                    as.numeric(final.data$allele_frequency),
+                                    unname(lofreq.af[final.data$variant_id]))
+
+n.changes = length(unique(final.data$variant_id))
+n.both    = sum(duplicated(final.data$variant_id))
+n.borrow  = sum(!is.lofreq & !is.na(final.data$allele_fraction))
+n.geno    = sum(!is.lofreq &  is.na(final.data$allele_fraction))
+cat(sprintf("Caller reconciliation: %d rows -> %d distinct changes (%d reported by both callers)\n",
+            nrow(final.data), n.changes, n.both))
+cat(sprintf("  GATK4 rows: %d took LoFreq's fraction, %d genotype-only (allele_fraction NA)\n",
+            n.borrow, n.geno))
+
+#############################################
 #### Amino-acid annotation, through the real coding intervals
 #############################################
 # Eight segments, twelve proteins. A nucleotide inside PA may also code for
