@@ -28,6 +28,11 @@ output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/reference_g
 
 dir.create(output.directory, showWarnings = FALSE)
 
+script.dir = dirname(sub("^--file=", "",
+                         grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]))
+if (is.na(script.dir) || !nzchar(script.dir)) script.dir = "."
+source(file.path(script.dir, "fluORFs.R"))
+
 require(Biostrings)
 ref.seqs = readDNAStringSet(reference.path)
 
@@ -35,19 +40,9 @@ ref.seqs = readDNAStringSet(reference.path)
 #### Helper functions
 #############################################
 
-# Identify the influenza A segment type from a sequence name
-get_segment_type <- function(name) {
-  n = toupper(name)
-  if (grepl("PB2", n))                            return("PB2")
-  if (grepl("PB1", n))                            return("PB1")
-  if (grepl("NP",  n) && !grepl("PB", n))         return("NP")
-  if (grepl("PA",  n) && !grepl("PB", n))         return("PA")
-  if (grepl("HA|HEMA|H[0-9]", n))                 return("HA")
-  if (grepl("NA|N[0-9]", n) && !grepl("NP|PB|PAND", n)) return("NA")
-  if (grepl("MP|MATRIX|_M$|_M[12_]", n))          return("MP")
-  if (grepl("NS", n))                              return("NS")
-  return(NA)
-}
+# Identify the influenza A segment type from a sequence name.
+# Delegates to fluORFs.R so the segment rules exist in exactly one place.
+get_segment_type <- function(name) flu_segment_type(name)
 
 # Standard product names for influenza A genes
 gene_product <- function(gene) {
@@ -98,329 +93,86 @@ check_codon <- function(seq.str, pos, type = "start", label = "") {
   return(TRUE)
 }
 
-# Proportionally scale a canonical coordinate to a different sequence length
-scale_pos <- function(pos, canonical_len, actual_len) {
-  round(pos * actual_len / canonical_len)
-}
+#############################################
+#### GTF entry builders
+####
+#### The CDS intervals come from Scripts/fluORFs.R — the same function the
+#### variant pipeline uses to turn a nucleotide position into an amino-acid
+#### position. They used to be written out twice, here and there, with a comment
+#### asking whoever edited one to remember the other. They diverged: fluORFs
+#### gained stop-codon trimming (NS1 and PA-X have strain-variable C-termini —
+#### 219 vs 230 aa and 232 vs 252 aa between the H3N2 and H5N1 references) and
+#### this file did not. One source now, so it cannot happen again.
+#############################################
 
-#############################################
-#### GTF entry builders per segment type
-####
-#### Canonical coordinates come from verified H3N2 influenza A references.
-#### For single-gene segments the CDS boundaries are derived directly from
-#### the actual sequence length.  For spliced / alternate-ORF segments the
-#### internal coordinates are scaled proportionally when the input length
-#### differs from the canonical reference.
-####
-#### NOTE: the CDS intervals below are also expressed, independently, in
-#### Scripts/fluORFs.R, which is what convertVCFtoTable.R / findAAChanges.R /
-#### runWFABC.R use to turn a nucleotide position into an amino-acid position.
-#### The two must agree. They are kept separate because this script also emits
-#### gene / start_codon / stop_codon rows that the position mapping has no use
-#### for — but if you change a coordinate here, change it there too, and run
-#### Scripts/test_fluORFs.R, which fails when they diverge.
-#############################################
+flu_gene_biotype <- "protein_coding"
 
 make_gtf_entries <- function(seqname, seq.len, seg.type, seq.str) {
-
-  rows = c()
 
   if (is.na(seg.type)) {
     warning(paste0("Could not identify segment type for '", seqname,
                    "' — writing single-CDS annotation."))
-    seg.type = "UNKNOWN"
   }
 
-  # ------------------------------------------------------------------
-  # Single-gene segments: HA, NA, NP, PB2, UNKNOWN
-  # CDS is always 1 to (len-3); stop codon is last 3 bases.
-  # ------------------------------------------------------------------
-  if (seg.type %in% c("HA", "NA", "NP", "PB2", "UNKNOWN")) {
+  orfs = flu_orfs_for(seqname, seq.str, seg.type)
+  # NCBI lists the spliced product first on MP and NS; keep that convention so
+  # the emitted GTF still matches a reference annotation line for line.
+  if (!is.na(seg.type) && seg.type %in% c("MP", "NS")) orfs = rev(orfs)
+  rows = c()
+  cat("  Segment:", seqname, "| genes:",
+      paste(sapply(orfs, `[[`, "gene"), collapse = " + "), "| len:", seq.len, "\n")
 
-    gene.name  = if (seg.type == "UNKNOWN") seqname else seg.type
-    cds.end    = seq.len - 3
-    stop.start = seq.len - 2
+  for (o in orfs) {
+    gene   = o$gene
+    ex     = o$exons
+    n.ex   = nrow(ex)
+    cds.end   = ex$end[n.ex]
+    stop.start= cds.end + 1L
+    stop.end  = min(cds.end + 3L, seq.len)
+    tx = paste0("unassigned_transcript_", which(sapply(orfs, `[[`, "gene") == gene)[1])
 
-    cat("  Segment:", seqname, "| gene:", gene.name, "| len:", seq.len, "\n")
-    check_codon(seq.str, 1,          "start", gene.name)
-    check_codon(seq.str, stop.start, "stop",  gene.name)
+    check_codon(seq.str, ex$start[1], "start", gene)
+    if (stop.end - stop.start == 2L) check_codon(seq.str, stop.start, "stop", gene)
+
+    # Per-gene annotation NCBI carries and SNPGenie ignores, but which makes the
+    # output comparable to a downloaded reference GTF.
+    # Two slots, because NCBI puts them in different places: PA-X's `exception`
+    # sits before gbkey, NEP's `note` after gene.
+    extra = if (gene == "PA-X") list(exception = "ribosomal slippage") else list()
+    mid   = if (gene == "NEP")  list(note = "nonstructural protein 2") else list()
+
+    gene.attrs = c(list(gene_id = gene, transcript_id = "", gbkey = "Gene",
+                        gene = gene, gene_biotype = flu_gene_biotype),
+                   if (gene == "NEP") list(gene_synonym = "NS2") else list())
+    rows = c(rows,
+      gtf_row(seqname, "gene", ex$start[1], stop.end, ".", "+",
+        do.call(attr_str, gene.attrs)))
+
+    before = 0L
+    for (k in seq_len(n.ex)) {
+      # GTF frame: bases to skip at the start of this exon to reach a codon
+      frame = (3L - (before %% 3L)) %% 3L
+      a = do.call(attr_str, c(list(gene_id = gene, transcript_id = tx), extra,
+                   list(gbkey = "CDS", gene = gene), mid,
+                   if (n.ex > 1) list(part = as.character(k)) else list(),
+                   list(product = gene_product(gene), exon_number = as.character(k))))
+      rows = c(rows, gtf_row(seqname, "CDS", ex$start[k], ex$end[k],
+                             as.character(frame), "+", a))
+      before = before + (ex$end[k] - ex$start[k] + 1L)
+    }
 
     rows = c(rows,
-      gtf_row(seqname, "gene", 1, seq.len, ".", "+",
-        attr_str(gene_id = gene.name, transcript_id = "",
-                 gbkey = "Gene", gene = gene.name, gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, cds.end, "0", "+",
-        attr_str(gene_id = gene.name, transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = gene.name,
-                 product = gene_product(gene.name), exon_number = "1")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = gene.name, transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = gene.name,
-                 product = gene_product(gene.name), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", stop.start, seq.len, "0", "+",
-        attr_str(gene_id = gene.name, transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = gene.name,
-                 product = gene_product(gene.name), exon_number = "1"))
-    )
+      gtf_row(seqname, "start_codon", ex$start[1], ex$start[1] + 2L, "0", "+",
+        do.call(attr_str, c(list(gene_id = gene, transcript_id = tx), extra,
+                 list(gbkey = "CDS", gene = gene), mid,
+                 list(product = gene_product(gene), exon_number = "1")))),
+      gtf_row(seqname, "stop_codon", stop.start, stop.end, "0", "+",
+        do.call(attr_str, c(list(gene_id = gene, transcript_id = tx), extra,
+                 list(gbkey = "CDS", gene = gene), mid,
+                 list(product = gene_product(gene),
+                      exon_number = as.character(n.ex))))))
   }
-
-  # ------------------------------------------------------------------
-  # PB1: primary ORF + PB1-F2 alternate ORF (canonical len 2274)
-  # PB1-F2 starts in a different reading frame at position 95.
-  # ------------------------------------------------------------------
-  else if (seg.type == "PB1") {
-
-    canonical_len  = 2274
-    f2.start       = scale_pos(95,  canonical_len, seq.len)
-    f2.cds.end     = scale_pos(364, canonical_len, seq.len)
-    f2.stop.start  = scale_pos(365, canonical_len, seq.len)
-    f2.stop.end    = scale_pos(367, canonical_len, seq.len)
-
-    cat("  Segment:", seqname, "| genes: PB1 + PB1-F2 | len:", seq.len, "\n")
-    if (seq.len != canonical_len)
-      cat("  Note: scaling PB1-F2 coordinates from canonical",
-          canonical_len, "to", seq.len, "\n")
-    check_codon(seq.str, 1,             "start", "PB1")
-    check_codon(seq.str, seq.len - 2,   "stop",  "PB1")
-    check_codon(seq.str, f2.start,      "start", "PB1-F2")
-    check_codon(seq.str, f2.stop.start, "stop",  "PB1-F2")
-
-    rows = c(rows,
-      # PB1 primary ORF
-      gtf_row(seqname, "gene", 1, seq.len, ".", "+",
-        attr_str(gene_id = "PB1", transcript_id = "",
-                 gbkey = "Gene", gene = "PB1", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, seq.len - 3, "0", "+",
-        attr_str(gene_id = "PB1", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PB1",
-                 product = gene_product("PB1"), exon_number = "1")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "PB1", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PB1",
-                 product = gene_product("PB1"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", seq.len - 2, seq.len, "0", "+",
-        attr_str(gene_id = "PB1", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PB1",
-                 product = gene_product("PB1"), exon_number = "1")),
-      # PB1-F2 alternate ORF
-      gtf_row(seqname, "gene", f2.start, f2.stop.end, ".", "+",
-        attr_str(gene_id = "PB1-F2", transcript_id = "",
-                 gbkey = "Gene", gene = "PB1-F2", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", f2.start, f2.cds.end, "0", "+",
-        attr_str(gene_id = "PB1-F2", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "PB1-F2",
-                 product = gene_product("PB1-F2"), exon_number = "1")),
-      gtf_row(seqname, "start_codon", f2.start, f2.start + 2, "0", "+",
-        attr_str(gene_id = "PB1-F2", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "PB1-F2",
-                 product = gene_product("PB1-F2"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", f2.stop.start, f2.stop.end, "0", "+",
-        attr_str(gene_id = "PB1-F2", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "PB1-F2",
-                 product = gene_product("PB1-F2"), exon_number = "1"))
-    )
-  }
-
-  # ------------------------------------------------------------------
-  # PA: primary ORF + PA-X ribosomal-slippage product (canonical len 2151)
-  # PA-X exon1 shares sequence with PA; exon2 is in the +1 reading frame.
-  # ------------------------------------------------------------------
-  else if (seg.type == "PA") {
-
-    canonical_len   = 2151
-    px.e1.end       = scale_pos(570, canonical_len, seq.len)
-    px.e2.start     = scale_pos(572, canonical_len, seq.len)
-    px.e2.end       = scale_pos(697, canonical_len, seq.len)
-    px.stop.start   = scale_pos(698, canonical_len, seq.len)
-    px.stop.end     = scale_pos(700, canonical_len, seq.len)
-
-    cat("  Segment:", seqname, "| genes: PA + PA-X | len:", seq.len, "\n")
-    if (seq.len != canonical_len)
-      cat("  Note: scaling PA-X coordinates from canonical",
-          canonical_len, "to", seq.len, "\n")
-    check_codon(seq.str, 1,           "start", "PA")
-    check_codon(seq.str, seq.len - 2, "stop",  "PA")
-
-    rows = c(rows,
-      # PA primary ORF
-      gtf_row(seqname, "gene", 1, seq.len, ".", "+",
-        attr_str(gene_id = "PA", transcript_id = "",
-                 gbkey = "Gene", gene = "PA", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, seq.len - 3, "0", "+",
-        attr_str(gene_id = "PA", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PA",
-                 product = gene_product("PA"), exon_number = "1")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "PA", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PA",
-                 product = gene_product("PA"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", seq.len - 2, seq.len, "0", "+",
-        attr_str(gene_id = "PA", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "PA",
-                 product = gene_product("PA"), exon_number = "1")),
-      # PA-X ribosomal slippage product
-      gtf_row(seqname, "gene", 1, px.stop.end, ".", "+",
-        attr_str(gene_id = "PA-X", transcript_id = "",
-                 gbkey = "Gene", gene = "PA-X", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, px.e1.end, "0", "+",
-        attr_str(gene_id = "PA-X", transcript_id = "unassigned_transcript_2",
-                 exception = "ribosomal slippage",
-                 gbkey = "CDS", gene = "PA-X", part = "1",
-                 product = gene_product("PA-X"), exon_number = "1")),
-      gtf_row(seqname, "CDS", px.e2.start, px.e2.end, "0", "+",
-        attr_str(gene_id = "PA-X", transcript_id = "unassigned_transcript_2",
-                 exception = "ribosomal slippage",
-                 gbkey = "CDS", gene = "PA-X", part = "2",
-                 product = gene_product("PA-X"), exon_number = "2")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "PA-X", transcript_id = "unassigned_transcript_2",
-                 exception = "ribosomal slippage",
-                 gbkey = "CDS", gene = "PA-X",
-                 product = gene_product("PA-X"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", px.stop.start, px.stop.end, "0", "+",
-        attr_str(gene_id = "PA-X", transcript_id = "unassigned_transcript_2",
-                 exception = "ribosomal slippage",
-                 gbkey = "CDS", gene = "PA-X",
-                 product = gene_product("PA-X"), exon_number = "2"))
-    )
-  }
-
-  # ------------------------------------------------------------------
-  # MP: M1 (unspliced) + M2 (spliced mRNA) (canonical len 982)
-  # M2 exon1: 1-26, exon2: 715-979, stop: 980-end
-  # M1 CDS: 1-756, stop: 757-759
-  # ------------------------------------------------------------------
-  else if (seg.type == "MP") {
-
-    canonical_len  = 982
-    m1.cds.end     = scale_pos(756, canonical_len, seq.len)
-    m1.stop.start  = scale_pos(757, canonical_len, seq.len)
-    m1.stop.end    = scale_pos(759, canonical_len, seq.len)
-    m2.e1.end      = scale_pos(26,  canonical_len, seq.len)
-    m2.e2.start    = scale_pos(715, canonical_len, seq.len)
-    m2.e2.end      = scale_pos(979, canonical_len, seq.len)
-    m2.stop.start  = scale_pos(980, canonical_len, seq.len)
-    m2.stop.end    = seq.len
-
-    cat("  Segment:", seqname, "| genes: M1 + M2 (spliced) | len:", seq.len, "\n")
-    if (seq.len != canonical_len)
-      cat("  Note: scaling MP coordinates from canonical",
-          canonical_len, "to", seq.len, "\n")
-    check_codon(seq.str, 1,             "start", "M1/M2")
-    check_codon(seq.str, m1.stop.start, "stop",  "M1")
-    check_codon(seq.str, m2.stop.start, "stop",  "M2")
-
-    rows = c(rows,
-      # M2 spliced mRNA (listed first to match reference GTF convention)
-      gtf_row(seqname, "gene", 1, seq.len, ".", "+",
-        attr_str(gene_id = "M2", transcript_id = "",
-                 gbkey = "Gene", gene = "M2", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, m2.e1.end, "0", "+",
-        attr_str(gene_id = "M2", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "M2", part = "1",
-                 product = gene_product("M2"), exon_number = "1")),
-      gtf_row(seqname, "CDS", m2.e2.start, m2.e2.end, "1", "+",
-        attr_str(gene_id = "M2", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "M2", part = "2",
-                 product = gene_product("M2"), exon_number = "2")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "M2", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "M2",
-                 product = gene_product("M2"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", m2.stop.start, m2.stop.end, "0", "+",
-        attr_str(gene_id = "M2", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "M2",
-                 product = gene_product("M2"), exon_number = "2")),
-      # M1 unspliced mRNA
-      gtf_row(seqname, "gene", 1, m1.stop.end, ".", "+",
-        attr_str(gene_id = "M1", transcript_id = "",
-                 gbkey = "Gene", gene = "M1", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, m1.cds.end, "0", "+",
-        attr_str(gene_id = "M1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "M1",
-                 product = gene_product("M1"), exon_number = "1")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "M1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "M1",
-                 product = gene_product("M1"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", m1.stop.start, m1.stop.end, "0", "+",
-        attr_str(gene_id = "M1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "M1",
-                 product = gene_product("M1"), exon_number = "1"))
-    )
-  }
-
-  # ------------------------------------------------------------------
-  # NS: NS1 (unspliced) + NEP/NS2 (spliced mRNA) (canonical len 838)
-  # NEP exon1: 1-30, exon2: 503-835, stop: 836-end
-  # NS1 CDS: 1-657, stop: 658-660
-  # ------------------------------------------------------------------
-  else if (seg.type == "NS") {
-
-    canonical_len  = 838
-    ns1.cds.end    = scale_pos(657, canonical_len, seq.len)
-    ns1.stop.start = scale_pos(658, canonical_len, seq.len)
-    ns1.stop.end   = scale_pos(660, canonical_len, seq.len)
-    nep.e1.end     = scale_pos(30,  canonical_len, seq.len)
-    nep.e2.start   = scale_pos(503, canonical_len, seq.len)
-    nep.e2.end     = scale_pos(835, canonical_len, seq.len)
-    nep.stop.start = scale_pos(836, canonical_len, seq.len)
-    nep.stop.end   = seq.len
-
-    cat("  Segment:", seqname, "| genes: NS1 + NEP (spliced) | len:", seq.len, "\n")
-    if (seq.len != canonical_len)
-      cat("  Note: scaling NS coordinates from canonical",
-          canonical_len, "to", seq.len, "\n")
-    check_codon(seq.str, 1,              "start", "NS1/NEP")
-    check_codon(seq.str, ns1.stop.start, "stop",  "NS1")
-    check_codon(seq.str, nep.stop.start, "stop",  "NEP")
-
-    rows = c(rows,
-      # NEP spliced mRNA (listed first to match reference GTF convention)
-      gtf_row(seqname, "gene", 1, seq.len, ".", "+",
-        attr_str(gene_id = "NEP", transcript_id = "",
-                 gbkey = "Gene", gene = "NEP", gene_biotype = "protein_coding",
-                 gene_synonym = "NS2")),
-      gtf_row(seqname, "CDS", 1, nep.e1.end, "0", "+",
-        attr_str(gene_id = "NEP", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "NEP",
-                 note = "nonstructural protein 2", part = "1",
-                 product = gene_product("NEP"), exon_number = "1")),
-      gtf_row(seqname, "CDS", nep.e2.start, nep.e2.end, "0", "+",
-        attr_str(gene_id = "NEP", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "NEP",
-                 note = "nonstructural protein 2", part = "2",
-                 product = gene_product("NEP"), exon_number = "2")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "NEP", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "NEP",
-                 note = "nonstructural protein 2",
-                 product = gene_product("NEP"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", nep.stop.start, nep.stop.end, "0", "+",
-        attr_str(gene_id = "NEP", transcript_id = "unassigned_transcript_1",
-                 gbkey = "CDS", gene = "NEP",
-                 note = "nonstructural protein 2",
-                 product = gene_product("NEP"), exon_number = "2")),
-      # NS1 unspliced mRNA
-      gtf_row(seqname, "gene", 1, ns1.stop.end, ".", "+",
-        attr_str(gene_id = "NS1", transcript_id = "",
-                 gbkey = "Gene", gene = "NS1", gene_biotype = "protein_coding")),
-      gtf_row(seqname, "CDS", 1, ns1.cds.end, "0", "+",
-        attr_str(gene_id = "NS1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "NS1",
-                 product = gene_product("NS1"), exon_number = "1")),
-      gtf_row(seqname, "start_codon", 1, 3, "0", "+",
-        attr_str(gene_id = "NS1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "NS1",
-                 product = gene_product("NS1"), exon_number = "1")),
-      gtf_row(seqname, "stop_codon", ns1.stop.start, ns1.stop.end, "0", "+",
-        attr_str(gene_id = "NS1", transcript_id = "unassigned_transcript_2",
-                 gbkey = "CDS", gene = "NS1",
-                 product = gene_product("NS1"), exon_number = "1"))
-    )
-  }
-
-  return(rows)
+  rows
 }
 
 # Re-offset all coordinate columns in a vector of GTF entry strings and

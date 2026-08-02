@@ -124,13 +124,23 @@ if (!is.null(mutations) && nrow(mutations) > 0) {
       if (!cl %in% colnames(ref.row)) return(TRUE)   # reference never saw it: keep
       rv <- as.character(ref.row[[cl]])
       sv <- unique(as.character(mutations[[cl]]))
-      !all(sv == rv | is.na(sv) & is.na(rv))
+      # (Details of an unpublished run were removed here.)
+      #
+      #
+      #
+      #
+      #
+      sv <- sv[!is.na(sv)]
+      if (length(sv) == 0L) return(FALSE)            # nothing observed: no signal
+      if (is.na(rv)) return(TRUE)                    # reference blank, samples not
+      !all(sv == rv)
     }, logical(1))
   } else {
     informative <- rep(TRUE, length(mut.cols))
     message("No reference mutations to compare; mutations.tsv left unfiltered.")
   }
 
+  informative[is.na(informative)] <- TRUE           # never index columns by NA
   out.mutations <- mutations[, c(sample.col, mut.cols[informative]), drop = FALSE]
   wr(out.mutations, file.path(outdir, "mutations.tsv"))
   cat(sprintf("mutations.tsv: %d mutation columns -> %d (%d invariant vs the reference removed)\n",
