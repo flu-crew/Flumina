@@ -373,7 +373,13 @@ for (i in 1:length(sample.names)){
 
     for (k in 1:length(pos.names)){
 
-      pos.data = locus.data[locus.data$position %in% pos.names[k]]
+      # The comma is load-bearing. `df[vec]` on a data.frame selects COLUMNS,
+      # not rows, so without it pos.data kept every row and an arbitrary subset
+      # of columns: pos.data[[individual.column]] came back NULL and the
+      # data.frame below died with "arguments imply differing number of rows:
+      # 0, 65". Every other subset in this file has the comma — 286, 355-357,
+      # 364, 370 — which is what makes this a typo rather than an intent.
+      pos.data = locus.data[locus.data$position %in% pos.names[k], ]
 
       if (nrow(pos.data) <= 1){
         next
@@ -652,6 +658,98 @@ save.data = collect.data
 
 write.table(save.data, paste0(output.directory, "/wfabc_summary.txt"),
             row.names = F, quote = F, sep = "\t")
+
+#############################################
+#### Frequency Increment Test (drift vs selection)
+#############################################
+# WFABC answers "what selection coefficient best explains this trajectory".
+# The FIT (Feder, Kryazhimskiy & Plotkin 2014) answers the prior question:
+# is the trajectory distinguishable from DRIFT at all? The two are reported
+# side by side because they can disagree, and when they do the disagreement is
+# the finding — a large s_map whose credible interval spans zero and whose FIT
+# p-value is unremarkable is drift wearing a selection coefficient.
+#
+# Ported from analyze_drift.R (Cow_Comparison), generalised: no hardcoded paths
+# and the group comes from GROUP_NAMES rather than a study-specific vaccine
+# label. Column names are kept identical to that script's FIT_results.csv so
+# the two analyses stay directly comparable.
+#
+# It reads the per-site input.txt files WFABC already wrote — line 2 is the time
+# points, line 3 the depths, line 4 the alt counts.
+fit.one = function(f, root){
+  L = readLines(f, warn = FALSE)
+  if (length(L) < 4) return(NULL)
+  tp  = as.numeric(strsplit(L[2], ",")[[1]])
+  dep = as.numeric(strsplit(L[3], ",")[[1]])
+  alt = as.numeric(strsplit(L[4], ",")[[1]])
+  # FIT needs at least three time points: the test is a t-test over the
+  # INCREMENTS, so two time points give a single increment and no variance.
+  if (length(tp) < 3) return(NULL)
+  # (alt+0.5)/(dep+1) keeps the frequency strictly inside (0,1); at 0 or 1 the
+  # rescaling below divides by zero.
+  v = (alt + 0.5) / (dep + 1)
+  o = order(tp); tp = tp[o]; v = v[o]
+  dt = diff(tp); dv = diff(v)
+  Y = dv / sqrt(2 * head(v, -1) * (1 - head(v, -1)) * dt)
+  Y = Y[is.finite(Y)]
+  if (length(Y) < 2 || sd(Y) == 0) return(NULL)
+  tt = t.test(Y)
+  parts = strsplit(sub(paste0(root, "/"), "", f), "/")[[1]]   # animal/locus/pos
+  if (length(parts) < 3) return(NULL)
+  data.frame(animal = parts[1], locus = parts[2], pos = as.numeric(parts[3]),
+             n_tp = length(tp), FIT_t = unname(tt$statistic), FIT_p = tt$p.value,
+             mean_incr = mean(Y), stringsAsFactors = FALSE)
+}
+
+traj.files = list.files(output.directory, pattern = "^input.txt$",
+                        recursive = TRUE, full.names = TRUE)
+fit = NULL
+if (length(traj.files)){
+  fit = do.call(rbind, lapply(traj.files, fit.one, root = output.directory))
+}
+if (is.null(fit) || nrow(fit) == 0){
+  print(paste0("FIT: no trajectory had 3+ time points (", length(traj.files),
+               " trajectories) — FIT_results.csv not written"))
+} else {
+  fit$FIT_fdr = p.adjust(fit$FIT_p, "BH")
+
+  # Join WFABC's own estimates on. wfabc_dir is a LOGICAL, not a path: TRUE when
+  # the ABC credible interval excludes zero. The name is inherited from
+  # analyze_drift.R and kept for compatibility even though it reads like a
+  # directory.
+  # as.data.frame is not decoration: collect.data is a data.table, where
+  # sm[, keep, drop=FALSE] treats `keep` as a column NAME rather than a vector
+  # of names and dies with "column name 'keep' is not found". Converting once
+  # here means the rest of this block is plain data.frame semantics regardless
+  # of what the pipeline upstream happens to hand over.
+  sm = as.data.frame(save.data)
+  sm$key  = paste(sm$sample, sm$locus, sm$nuc_position)
+  fit$key = paste(fit$animal, fit$locus, fit$pos)
+  keep = intersect(c("key","s_map","s_lower_bound","s_upper_bound","Ne_mean"), names(sm))
+  fit = merge(fit, sm[, keep, drop = FALSE], by = "key", all.x = TRUE)
+  fit$wfabc_dir = !is.na(fit$s_lower_bound) &
+                  (fit$s_lower_bound > 0 | fit$s_upper_bound < 0)
+
+  # Group label, when the metadata carried one.
+  if (group.column %in% names(all.samples)){
+    grp.map = as.data.frame(all.samples)          # same data.table caution
+    grp.map = grp.map[!duplicated(grp.map[[individual.column]]), ]
+    fit$grp = grp.map[[group.column]][match(fit$animal,
+                                            as.character(grp.map[[individual.column]]))]
+  } else {
+    fit$grp = NA
+  }
+
+  ord = c("grp","animal","locus","pos","n_tp","FIT_t","FIT_p","FIT_fdr",
+          "mean_incr","s_map","wfabc_dir","Ne_mean")
+  fit = fit[, intersect(ord, names(fit)), drop = FALSE]
+  write.csv(fit, paste0(output.directory, "/FIT_results.csv"), row.names = FALSE)
+
+  print(paste0("FIT: ", nrow(fit), " of ", length(traj.files),
+               " trajectories had 3+ time points; ",
+               sum(fit$FIT_fdr < 0.05, na.rm = TRUE), " significant at BH-FDR<0.05; ",
+               sum(fit$n_tp >= 4, na.rm = TRUE), " with 4+ time points (df>=2)"))
+}
 
 #############################################
 #### Summary figures (generic + batch-safe)

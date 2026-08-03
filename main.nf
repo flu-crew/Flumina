@@ -116,6 +116,26 @@ def asBool(value) {
     return value?.toString()?.trim()?.toLowerCase() in ['true', 't', 'yes', '1']
 }
 
+/*
+ * The numeric sibling of asBool, and it exists for the same reason — the same
+ * 25.x change, one type over.
+ *
+ * (Details of an unpublished run were removed here.)
+ *
+ *
+ *
+ *
+ *
+ *
+ *
+ * Never do arithmetic on a params value directly. Put it through here.
+ */
+def asNum(value, fallback = 0) {
+    if (value instanceof Number) return value
+    try { return new BigDecimal(value?.toString()?.trim()) }
+    catch (ignored) { return fallback }
+}
+
 def helpMessage() {
     log.info """
     ##########################################################################
@@ -170,10 +190,29 @@ process PREPARE_REFERENCE {
     tag   "reference"
     label 'process_low'
     publishDir "${params.outdir}/Reference", mode: params.publish_mode
-    // findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa — the old bash
-    // driver copied the reference to the output root before calling snakemake,
-    // so the R scripts depend on it being there. Reproduce that placement.
-    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'reference.fa'
+    /* findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa — the old bash
+     * driver copied the reference to the output root before calling snakemake,
+     * so the R scripts depend on it being there. Reproduce that placement.
+     *
+     * (Details of an unpublished run were removed here.)
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     *
+     * Keeping the reference inside the output directory is a natural thing to
+     * do — it makes the run self-contained — so this is guarded rather than
+     * merely documented.
+     */
+    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'reference.fa',
+        saveAs: { fn ->
+            def src = file(params.reference).toAbsolutePath().normalize()
+            def dst = file("${params.outdir}/${fn}").toAbsolutePath().normalize()
+            src == dst ? null : fn
+        }
 
     input:
     // stageAs gives the input a fixed, distinct name. Without it, a reference
@@ -885,7 +924,7 @@ process FLUMUT_LOWFREQ {
     path 'flumut_version.txt', emit: version
 
     script:
-    freq_pct = (params.flumut_freq_threshold * 100).toInteger()
+    freq_pct = (asNum(params.flumut_freq_threshold, 0.01) * 100).toInteger()
     def subtract = asBool(params.flumut_subtract_reference)
     def keep_hana = asBool(params.flumut_keep_mismatched_ha_na) ? 'TRUE' : 'FALSE'
     """
