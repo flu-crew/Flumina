@@ -302,6 +302,7 @@ function load_config_file() {
             FLUMUT_LOWFREQ)        CFG_FLUMUT_LOWFREQ="$value" ;;
             FLUMUT_FREQ_THRESHOLD) CFG_FLUMUT_FREQ="$value" ;;
             FLUMUT_SUBTRACT_REFERENCE) CFG_FLUMUT_SUBREF="$value" ;;
+            FLUMUT_KEEP_MISMATCHED_HA_NA) CFG_FLUMUT_KEEP_HANA="$value" ;;
             SNPGENIE)              CFG_SNPGENIE="$value" ;;
             WFABC)                 CFG_WFABC="$value" ;;
             INDIVIDUAL_COLUMN)     CFG_INDIVIDUAL_COLUMN="$value" ;;
@@ -380,8 +381,15 @@ FLUMUT_FREQ=0.01
 # default: the reference carries markers of its own that every sample then
 # inherits, and they drown out the real ones.
 FLUMUT_SUBREF="true"
+# Keep HA/NA marker rows when the reference subtype does not match FluMut's
+# H5/N1 numbering. Off by default: off-subtype those positions are read against
+# the wrong ruler. Dropped rows survive in markers_all.tsv either way.
+FLUMUT_KEEP_HANA="false"
 IRMA_CONFIG=""
-WORK_DIR="work"
+# Empty means "derive it from OUTPUT_DIRECTORY once that is known" — see the
+# resolution below. It is deliberately NOT "work", which resolved inside the
+# results directory whenever the run was launched from there.
+WORK_DIR=""
 RESUME=""
 DRY_RUN=0
 SNPGENIE=""
@@ -555,6 +563,7 @@ if [ -n "$CONFIG_FILE" ]; then
 
     for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" \
                 "CFG_FLUMUT_SUBREF:FLUMUT_SUBREF" \
+                "CFG_FLUMUT_KEEP_HANA:FLUMUT_KEEP_HANA" \
                 "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC" \
                 "CFG_CLEANUP:CLEANUP"; do
         src="${pair%%:*}"; dest="${pair##*:}"
@@ -588,6 +597,29 @@ fi
 [ -n "$CLI_IRMA_CONFIG" ]  && IRMA_CONFIG="$CLI_IRMA_CONFIG"
 [ -n "$CLI_PROFILE" ]      && PROFILE="$CLI_PROFILE"
 [ -n "$CLI_WORKDIR" ]      && WORK_DIR="$CLI_WORKDIR"
+
+# Work directory: BESIDE the results, never inside them.
+#
+# Nextflow's work/ holds a staged copy of nearly everything — on the swine WGS
+# run that was 872 copies of reference.fa, 429 LoFreq VCFs and one of every
+# analysis table. Two things go wrong when it lands inside OUTPUT_DIRECTORY.
+# Anything reading the results directory finds those copies competing with the
+# real outputs (FluLens read reference_gtf twice and reported PB2 as 1518 codons
+# rather than 759), and the published directory stops being something you can
+# hand to anyone, because it is mostly scratch by volume.
+#
+# So the default is <parent of OUTPUT_DIRECTORY>/work: one directory back, next
+# to the results rather than in them. An explicit WORK_DIRECTORY or -w still
+# wins — this only fills in the default.
+if [ -z "$WORK_DIR" ]; then
+    if [ -n "$OUTPUT_DIRECTORY" ]; then
+        _out_abs=$(cd "$(dirname "$OUTPUT_DIRECTORY")" 2>/dev/null && pwd)/$(basename "$OUTPUT_DIRECTORY")
+        WORK_DIR="$(dirname "$_out_abs")/work"
+    else
+        WORK_DIR="work"
+    fi
+fi
+
 [ "${CLI_SKIP_IRMA:-0}" = "1" ]   && RUN_IRMA="false"
 [ "${CLI_SKIP_FLUMUT:-0}" = "1" ] && RUN_FLUMUT="false"
 [ "${CLI_CLEANUP:-0}" = "1" ]     && CLEANUP="true"
@@ -730,6 +762,7 @@ NF_ARGS=(
     --flumut_lowfreq "$FLUMUT_LOWFREQ"
     --flumut_freq_threshold "$FLUMUT_FREQ"
     --flumut_subtract_reference "$FLUMUT_SUBREF"
+    --flumut_keep_mismatched_ha_na "$FLUMUT_KEEP_HANA"
 )
 
 #Passed only when present: an empty --aa_db/--metadata would set the param to an
@@ -820,6 +853,7 @@ cat <<startBanner
     FluMut screening    : ${RUN_FLUMUT}
     FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
     FluMut minus ref    : ${FLUMUT_SUBREF}
+    FluMut keep HA/NA   : ${FLUMUT_KEEP_HANA}
     SNPGenie dN/dS      : ${SNPGENIE:-false}
     WFABC selection     : ${WFABC:-false}
     IRMA config         : ${IRMA_CONFIG:-none}

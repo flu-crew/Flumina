@@ -116,6 +116,26 @@ def asBool(value) {
     return value?.toString()?.trim()?.toLowerCase() in ['true', 't', 'yes', '1']
 }
 
+/*
+ * The numeric sibling of asBool, and it exists for the same reason — the same
+ * 25.x change, one type over.
+ *
+ * A param given on the command line arrives as a STRING. For booleans that gave
+ * the trap above. For numbers it is worse than truthy, because Groovy defines
+ * String * Integer as REPETITION: "0.01" * 100 is not 1, it is "0.01" written
+ * out one hundred times, and .toInteger() then throws on the 400-character
+ * result. That is exactly how FLUMUT_LOWFREQ died on the swine WGS run, and
+ * because the launcher ALWAYS passes --flumut_freq_threshold, it would have
+ * died the same way for every user on every run.
+ *
+ * Never do arithmetic on a params value directly. Put it through here.
+ */
+def asNum(value, fallback = 0) {
+    if (value instanceof Number) return value
+    try { return new BigDecimal(value?.toString()?.trim()) }
+    catch (ignored) { return fallback }
+}
+
 def helpMessage() {
     log.info """
     ##########################################################################
@@ -170,10 +190,29 @@ process PREPARE_REFERENCE {
     tag   "reference"
     label 'process_low'
     publishDir "${params.outdir}/Reference", mode: params.publish_mode
-    // findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa — the old bash
-    // driver copied the reference to the output root before calling snakemake,
-    // so the R scripts depend on it being there. Reproduce that placement.
-    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'reference.fa'
+    /* findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa — the old bash
+     * driver copied the reference to the output root before calling snakemake,
+     * so the R scripts depend on it being there. Reproduce that placement.
+     *
+     * saveAs returns null — i.e. publish nothing — when the reference the user
+     * pointed at IS that file already. Without the guard this process
+     * republishes its own input on top of itself: same bytes, new mtime, and
+     * Nextflow's default cache hash includes an input's last-modified time. So
+     * PREPARE_REFERENCE could never be cached, every downstream task saw a
+     * changed input, and `-resume` re-ran the entire alignment and calling
+     * chain. Measured on the swine WGS run: a resume that should have restarted
+     * at FLUMUT began re-running BWA_MAP across all 143 samples.
+     *
+     * Keeping the reference inside the output directory is a natural thing to
+     * do — it makes the run self-contained — so this is guarded rather than
+     * merely documented.
+     */
+    publishDir "${params.outdir}", mode: params.publish_mode, pattern: 'reference.fa',
+        saveAs: { fn ->
+            def src = file(params.reference).toAbsolutePath().normalize()
+            def dst = file("${params.outdir}/${fn}").toAbsolutePath().normalize()
+            src == dst ? null : fn
+        }
 
     input:
     // stageAs gives the input a fixed, distinct name. Without it, a reference
@@ -885,7 +924,7 @@ process FLUMUT_LOWFREQ {
     path 'flumut_version.txt', emit: version
 
     script:
-    freq_pct = (params.flumut_freq_threshold * 100).toInteger()
+    freq_pct = (asNum(params.flumut_freq_threshold, 0.01) * 100).toInteger()
     def subtract = asBool(params.flumut_subtract_reference)
     def keep_hana = asBool(params.flumut_keep_mismatched_ha_na) ? 'TRUE' : 'FALSE'
     """
