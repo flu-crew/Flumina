@@ -123,7 +123,8 @@ function print_help_menu() {
              './work'. On a cluster point this at scratch, for example
              -w /scratch/\$USER/flumina
         -s : Skip a portion of Flumina. Options: '0' = skip nothing,
-             'i' = skip IRMA assembly, 'm' = skip FluMut marker screening.
+             'i' = skip IRMA assembly, 'm' = skip FluMut marker screening,
+             'v' = skip iVar variant calling (LoFreq and GATK4 always run).
              These options may be combined. Default is 0
         -C : Delete the work directory when the run finishes successfully.
              The work directory holds every intermediate and is roughly the
@@ -299,6 +300,7 @@ function load_config_file() {
             DISABLE_IRMA)          CFG_DISABLE_IRMA="$value" ;;
             IRMA_CONFIG)           CFG_IRMA_CONFIG="$value" ;;
             FLUMUT)                CFG_FLUMUT="$value" ;;
+            IVAR)                  CFG_IVAR="$value" ;;
             FLUMUT_LOWFREQ)        CFG_FLUMUT_LOWFREQ="$value" ;;
             FLUMUT_FREQ_THRESHOLD) CFG_FLUMUT_FREQ="$value" ;;
             FLUMUT_SUBTRACT_REFERENCE) CFG_FLUMUT_SUBREF="$value" ;;
@@ -375,6 +377,8 @@ CLEANUP=""
 PUBLISH_MODE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
+#Third caller, on by default like LoFreq and GATK4. -s v turns it off.
+RUN_IVAR="true"
 FLUMUT_LOWFREQ="false"
 FLUMUT_FREQ=0.01
 # Subtract the reference's own FluMut findings from sample results. On by
@@ -443,8 +447,8 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
       s )
         #Reject unknown letters rather than skipping nothing silently, which
         #would leave the user believing a step had been turned off.
-        if [[ $OPTARG =~ [^0im] ]]; then
-            echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', and 'm'" 1>&2
+        if [[ $OPTARG =~ [^0imv] ]]; then
+            echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', 'm', and 'v'" 1>&2
             print_help_menu
         fi
         if [[ $OPTARG != *"0"* ]]; then
@@ -453,6 +457,9 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
             fi
             if [[ $OPTARG == *"m"* ]]; then
                 CLI_SKIP_FLUMUT=1
+            fi
+            if [[ $OPTARG == *"v"* ]]; then
+                CLI_SKIP_IVAR=1
             fi
         fi
         ;;
@@ -562,6 +569,7 @@ if [ -n "$CONFIG_FILE" ]; then
     fi
 
     for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" \
+                "CFG_IVAR:RUN_IVAR" \
                 "CFG_FLUMUT_SUBREF:FLUMUT_SUBREF" \
                 "CFG_FLUMUT_KEEP_HANA:FLUMUT_KEEP_HANA" \
                 "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC" \
@@ -622,6 +630,7 @@ fi
 
 [ "${CLI_SKIP_IRMA:-0}" = "1" ]   && RUN_IRMA="false"
 [ "${CLI_SKIP_FLUMUT:-0}" = "1" ] && RUN_FLUMUT="false"
+[ "${CLI_SKIP_IVAR:-0}" = "1" ]   && RUN_IVAR="false"
 [ "${CLI_CLEANUP:-0}" = "1" ]     && CLEANUP="true"
 [ "${CLI_SNPGENIE:-0}" = "1" ]    && SNPGENIE="true"
 [ "${CLI_WFABC:-0}" = "1" ]       && WFABC="true"
@@ -758,6 +767,7 @@ NF_ARGS=(
     --min_allele_frequency "$MIN_FREQ"
     --max_cpus "$NTHREADS"
     --run_irma "$RUN_IRMA"
+    --ivar "$RUN_IVAR"
     --flumut "$RUN_FLUMUT"
     --flumut_lowfreq "$FLUMUT_LOWFREQ"
     --flumut_freq_threshold "$FLUMUT_FREQ"
@@ -850,6 +860,7 @@ cat <<startBanner
     Minimum quality     : ${MIN_QUALITY}
     Minimum frequency   : ${MIN_FREQ}
     IRMA assembly       : ${RUN_IRMA}
+    iVar calling        : ${RUN_IVAR}
     FluMut screening    : ${RUN_FLUMUT}
     FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
     FluMut minus ref    : ${FLUMUT_SUBREF}
