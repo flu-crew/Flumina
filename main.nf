@@ -168,6 +168,7 @@ def helpMessage() {
       --min_quality      Minimum quality to keep       [${params.min_quality}]
       --min_allele_frequency  Minimum allele frequency [${params.min_allele_frequency}]
       --group_names      Metadata column to group by   [${params.group_names}]
+      --ivar             Call variants with iVar too   [${params.ivar}]
       --run_irma         Run IRMA assembly             [${params.run_irma}]
       --irma_config      IRMA parameter file           [${params.irma_config ?: 'none'}]
       --flumut           Screen consensus for markers  [${params.flumut}]
@@ -595,6 +596,64 @@ process LOFREQ {
     script:
     """
     lofreq call -f ${ref} -o lofreq-called-variants.vcf ${bam}
+    """
+}
+
+/*
+ * iVar — the third caller.
+ *
+ * Deliberately NOT given a GFF. `ivar variants -g` annotates amino acids by
+ * translating from the start of each reference sequence in frame 1, which is
+ * the exact `ceiling(POS/3)` mistake convertVCFtoTable.R was fixed for: it is
+ * right for the eight primary ORFs and meaningless for M2, NEP, PA-X and
+ * PB1-F2, and it does not fail — it returns a plausible residue for a codon
+ * that does not exist. Flumina annotates through Scripts/fluORFs.R, which walks
+ * the real coding intervals, so iVar contributes NUCLEOTIDE calls only and the
+ * amino-acid columns come from the same place they do for every other caller.
+ *
+ * mpileup flags, and why each one is not a default:
+ *   -aa       every position, including zero-coverage ones, so iVar's own
+ *             depth filter is what removes them rather than mpileup's silence
+ *   -A        count anomalous read pairs. LoFreq's DP4 was pinned to REQUIRE
+ *             proper pairs; iVar is left inclusive here because its PASS test
+ *             is its own, and the two callers are more useful when they are not
+ *             tuned to agree by construction
+ *   -B        no BAQ. On by default and it re-scores base qualities around
+ *             indels, which suppresses real low-frequency SNPs next to them
+ *   -d 0      no depth cap. The default 8000 would silently truncate the deep
+ *             libraries here — MC-495 runs to 1.4 million matched reads
+ *   -Q 0      let iVar apply the quality threshold via -q, rather than
+ *             filtering twice at two different values
+ *
+ * Thresholds come from the same params LoFreq and the R stage use, so the three
+ * callers are held to one set of numbers.
+ */
+process IVAR {
+    tag "$sample"; label 'process_medium'
+    publishDir { "${params.outdir}/vcf_files/${sample}" }, mode: params.publish_mode
+
+    input:
+    tuple val(sample), path(bam), path(bai)
+    tuple path(ref), path(ref_idx), path(ref_dict)
+
+    output:
+    tuple val(sample), path('ivar-called-variants.tsv'), emit: tsv
+
+    script:
+    """
+    samtools mpileup -aa -A -B -d 0 -Q 0 --reference ${ref} ${bam} \\
+      | ivar variants -p ivar-called-variants -r ${ref} \\
+          -m ${asNum(params.min_depth)} \\
+          -q ${asNum(params.min_quality)} \\
+          -t ${asNum(params.min_allele_frequency)}
+
+    # ivar exits 0 having written only a header when nothing passes, and an
+    # absent file would fail the output declaration instead of publishing an
+    # honest empty result. Both are valid outcomes for a thin library.
+    if [ ! -s ivar-called-variants.tsv ]; then
+      printf 'REGION\\tPOS\\tREF\\tALT\\tREF_DP\\tREF_RV\\tREF_QUAL\\tALT_DP\\tALT_RV\\tALT_QUAL\\tALT_FREQ\\tTOTAL_DP\\tPVAL\\tPASS\\n' \\
+        > ivar-called-variants.tsv
+    fi
     """
 }
 
@@ -1142,9 +1201,21 @@ workflow {
     // Group each sample's VCFs into a directory named after it, then collect —
     // this is both the completion gate and the vcf_files/<sample>/ layout that
     // convertVCFtoTable.R parses sample names out of.
-    per_sample = filtered
-        .join(lofreq)
-        .map { sample, snps, indels, lf -> tuple(sample, [snps, indels, lf]) }
+    //
+    // Two shapes rather than one join made conditional. `join` against an empty
+    // channel emits NOTHING, so folding an optional iVar into a single join
+    // would not degrade to "no iVar rows" — it would drop every sample from the
+    // R stage and produce an empty run that still exits green.
+    if (asBool(params.ivar)) {
+        per_sample = filtered
+            .join(lofreq)
+            .join(IVAR(final_bam, ref).tsv)
+            .map { sample, snps, indels, lf, iv -> tuple(sample, [snps, indels, lf, iv]) }
+    } else {
+        per_sample = filtered
+            .join(lofreq)
+            .map { sample, snps, indels, lf -> tuple(sample, [snps, indels, lf]) }
+    }
 
     vcf_dirs = GATHER_SAMPLE_VCFS(per_sample).dir.collect()
 

@@ -176,6 +176,104 @@ collect.data$reference[collect.data$reference == "TRUE"] = "T"
 lofreq.data = collect.data
 
 #############################################
+#### iVar
+#############################################
+# iVar writes a TAB-SEPARATED TABLE, not a VCF, so none of the VCF machinery
+# above applies — there is no #CHROM line to skip to and no INFO field to
+# regex apart. It is read directly.
+#
+# The file may legitimately be absent: IVAR=FALSE means the process never ran,
+# and this has to degrade to "no iVar rows" rather than fail, the same way an
+# absent metadata file does.
+#
+# Everything is read as CHARACTER and converted explicitly. read.table's type
+# guessing is what turns a REF/ALT column of A/C/G/T into logicals when the
+# only values present are T — the same "amino acid T becomes TRUE" problem the
+# VCF blocks patch up afterwards. Reading as character avoids it at the source,
+# and iVar's own PASS column is genuinely TRUE/FALSE, so a column of "T" and a
+# column of booleans would otherwise be indistinguishable to the reader.
+#
+# iVar's columns beyond PASS (GFF_FEATURE, REF_CODON, REF_AA, ALT_CODON,
+# ALT_AA, POS_AA) are always present and always NA here, because the process
+# deliberately passes no GFF: iVar translates from the start of each reference
+# sequence in frame 1, which is wrong for M2, NEP, PA-X and PB1-F2 in exactly
+# the way ceiling(POS/3) was. The amino-acid annotation below is authoritative
+# for every caller.
+
+ivar.string = "ivar-called-variants.tsv"
+all.ivar.files = list.files(vcf.directory, recursive = TRUE)
+ivar.files = all.ivar.files[grep(paste0(ivar.string, "$"), all.ivar.files)]
+
+ivar.rows   = list()
+n.ivar.indel = 0
+
+for (i in seq_along(ivar.files)) {
+
+  ivar.path = paste0(vcf.directory, "/", ivar.files[i])
+  ivar.tab = try(utils::read.table(ivar.path, sep = "\t", header = TRUE,
+                                   stringsAsFactors = FALSE, check.names = FALSE,
+                                   colClasses = "character", quote = "",
+                                   comment.char = "", na.strings = ""),
+                 silent = TRUE)
+
+  if (inherits(ivar.tab, "try-error") || is.null(nrow(ivar.tab)) || nrow(ivar.tab) == 0) { next }
+
+  ivar.sample = gsub("/.*", "", ivar.files[i])
+
+  # iVar reports indels in ALT as "+A" / "-T". Every downstream coordinate here
+  # is SNP-based — an indel would shift the reading frame of everything after it
+  # and there is no alignment to shift against — so they are dropped and
+  # counted, never silently bounds-checked away. The other two callers' indels
+  # are separated upstream (SelectVariants / filter_INDEL); iVar puts both kinds
+  # in one file, so this is where it happens for iVar.
+  is.indel = grepl("^[+-]", ivar.tab$ALT)
+  n.ivar.indel = n.ivar.indel + sum(is.indel)
+  ivar.tab = ivar.tab[!is.indel, , drop = FALSE]
+
+  if (nrow(ivar.tab) == 0) { next }
+
+  ivar.rows[[length(ivar.rows) + 1]] = data.frame(
+    method           = "iVar",
+    sample           = ivar.sample,
+    locus            = ivar.tab$REGION,
+    position         = as.numeric(ivar.tab$POS),
+    reference        = ivar.tab$REF,
+    alternative      = ivar.tab$ALT,
+    # ALT_QUAL is the mean quality of the reads carrying the alt, which is the
+    # closest thing iVar reports to the VCF QUAL the other two supply.
+    quality          = as.numeric(ivar.tab$ALT_QUAL),
+    depth            = as.numeric(ivar.tab$TOTAL_DP),
+    # iVar reports no mapping quality. NA, not 0 — 0 would read as "measured and
+    # terrible" rather than "not measured", and MIN_QUALITY filters on it.
+    map_quality      = NA_real_,
+    allele_frequency = as.numeric(ivar.tab$ALT_FREQ),
+    aa_position      = 0,
+    # iVar's own verdict on its own call, from its Fisher exact test against the
+    # sequencing error rate. Carried because it is the same situation as GATK4's
+    # FILTER column: iVar ANNOTATES rather than removes, so without this every
+    # row it flagged as failing arrives looking like a clean call. On MC-497's
+    # real output, 25 of 34 rows are PASS=FALSE.
+    ivar_pass        = ivar.tab$PASS,
+    stringsAsFactors = FALSE
+  )
+}
+
+if (length(ivar.rows) > 0) {
+  ivar.data = data.table::rbindlist(ivar.rows)
+} else {
+  # Same columns, no rows, so the rbind below behaves identically whether iVar
+  # ran or not.
+  ivar.data = data.table::data.table(
+    method = character(), sample = character(), locus = character(),
+    position = numeric(), reference = character(), alternative = character(),
+    quality = numeric(), depth = numeric(), map_quality = numeric(),
+    allele_frequency = numeric(), aa_position = numeric(), ivar_pass = character())
+}
+
+cat(sprintf("iVar: %d files, %d SNP rows kept, %d indel rows dropped\n",
+            length(ivar.files), nrow(ivar.data), n.ivar.indel))
+
+#############################################
 #### GATK4
 #############################################
 
@@ -292,7 +390,13 @@ collect.data = collect.data[collect.data$locus != 0,]
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
-final.data = rbind(lofreq.data, collect.data)
+# ivar_pass belongs only to iVar rows, so the other two callers are given the
+# column as NA before the bind. NA means "this caller has no such verdict",
+# which is a different statement from FALSE and must not collapse into it.
+lofreq.data$ivar_pass = NA_character_
+collect.data$ivar_pass = NA_character_
+
+final.data = rbind(lofreq.data, ivar.data, collect.data)
 
 #############################################
 #### Reconciling the two callers
@@ -328,23 +432,66 @@ final.data = rbind(lofreq.data, collect.data)
 final.data$variant_id = paste(final.data$sample, final.data$locus,
                               final.data$position, final.data$alternative,
                               sep = "|")
-final.data$af_type = ifelse(final.data$method == "LoFreq", "fraction", "genotype")
+# iVar reports an allele FRACTION, like LoFreq and unlike GATK4. So there are
+# now two callers measuring the same quantity and one measuring a different one,
+# and af_type says which — never the caller name, which is what a consumer would
+# otherwise have to hardcode a list against.
+final.data$af_type = ifelse(final.data$method == "GATK4", "genotype", "fraction")
 
-is.lofreq  = final.data$method == "LoFreq"
-lofreq.af  = stats::setNames(as.numeric(final.data$allele_frequency[is.lofreq]),
-                             final.data$variant_id[is.lofreq])
-final.data$allele_fraction = ifelse(is.lofreq,
+is.lofreq = final.data$method == "LoFreq"
+is.ivar   = final.data$method == "iVar"
+
+lofreq.af = stats::setNames(as.numeric(final.data$allele_frequency[is.lofreq]),
+                            final.data$variant_id[is.lofreq])
+ivar.af   = stats::setNames(as.numeric(final.data$allele_frequency[is.ivar]),
+                            final.data$variant_id[is.ivar])
+
+# LoFreq keeps priority for allele_fraction. It is the caller whose value was
+# checked against the reads (85.98% against 85.44% measured at PB2:1981 in
+# MC-524), it is what every existing analysis of these tables was built on, and
+# a silent change of what this column means is worse than the situation it would
+# fix. iVar fills the slot only where LoFreq never saw the change.
+borrowed.af = unname(lofreq.af[final.data$variant_id])
+borrowed.af = ifelse(is.na(borrowed.af), unname(ivar.af[final.data$variant_id]), borrowed.af)
+
+final.data$allele_fraction = ifelse(is.lofreq | is.ivar,
                                     as.numeric(final.data$allele_frequency),
-                                    unname(lofreq.af[final.data$variant_id]))
+                                    borrowed.af)
+
+# Where BOTH fraction callers saw the same change, record how far apart they
+# are. Not a boolean and not a correction: the two are independent measurements
+# of one quantity, so the gap between them is evidence about the call, and
+# collapsing it to a flag at a threshold chosen here would decide for every
+# downstream consumer what "disagreement" means. NA where only one caller saw
+# the change, which is different from agreeing.
+lo.for.row = unname(lofreq.af[final.data$variant_id])
+iv.for.row = unname(ivar.af[final.data$variant_id])
+final.data$af_conflict = ifelse(is.na(lo.for.row) | is.na(iv.for.row),
+                                NA_real_, abs(lo.for.row - iv.for.row))
 
 n.changes = length(unique(final.data$variant_id))
-n.both    = sum(duplicated(final.data$variant_id))
-n.borrow  = sum(!is.lofreq & !is.na(final.data$allele_fraction))
-n.geno    = sum(!is.lofreq &  is.na(final.data$allele_fraction))
-cat(sprintf("Caller reconciliation: %d rows -> %d distinct changes (%d reported by both callers)\n",
-            nrow(final.data), n.changes, n.both))
-cat(sprintf("  GATK4 rows: %d took LoFreq's fraction, %d genotype-only (allele_fraction NA)\n",
+n.dup     = sum(duplicated(final.data$variant_id))
+n.borrow  = sum(!is.lofreq & !is.ivar & !is.na(final.data$allele_fraction))
+n.geno    = sum(!is.lofreq & !is.ivar &  is.na(final.data$allele_fraction))
+cat(sprintf("Caller reconciliation: %d rows -> %d distinct changes (%d duplicate reports)\n",
+            nrow(final.data), n.changes, n.dup))
+cat(sprintf("  Rows by caller: LoFreq %d, iVar %d, GATK4 %d\n",
+            sum(is.lofreq), sum(is.ivar), sum(!is.lofreq & !is.ivar)))
+cat(sprintf("  GATK4 rows: %d took a fraction from LoFreq or iVar, %d genotype-only (allele_fraction NA)\n",
             n.borrow, n.geno))
+
+# Reported per CHANGE rather than per row: both callers contribute a row each,
+# so counting rows would double every disagreement.
+conflict.by.id = final.data$af_conflict[!duplicated(final.data$variant_id)]
+n.shared = sum(!is.na(conflict.by.id))
+if (n.shared > 0) {
+  cat(sprintf("  LoFreq vs iVar: %d changes seen by both, median |difference| %.4f, max %.4f\n",
+              n.shared, stats::median(conflict.by.id, na.rm = TRUE),
+              max(conflict.by.id, na.rm = TRUE)))
+  cat(sprintf("    %d differ by >1 percentage point, %d by >5\n",
+              sum(conflict.by.id > 0.01, na.rm = TRUE),
+              sum(conflict.by.id > 0.05, na.rm = TRUE)))
+}
 
 #############################################
 #### Amino-acid annotation, through the real coding intervals
