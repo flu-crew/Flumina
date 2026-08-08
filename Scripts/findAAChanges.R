@@ -226,7 +226,7 @@ aa.sample = list.files(paste0(output.directory, "/aa_db"))
 
 #combines all the individual samples together
 all.samples = c()
-for (i in 1:length(aa.sample)){
+for (i in seq_along(aa.sample)){
   
   # na.strings = "" again — see the note above; "NA" is a gene name here
   sample.data = read.csv(paste0(output.directory, "/aa_db/", aa.sample[i]),

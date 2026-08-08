@@ -142,7 +142,7 @@ collect.data[, alternative:=as.character(alternative)]
 
 #Loops through each locus and does operations on them
 x = 1
-for (i in 1:length(vcf.files)){
+for (i in seq_along(vcf.files)){
 
   #Counts comment lines to find first line
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
@@ -244,7 +244,7 @@ sample.names = unique(collect.data$sample)
 
 #combines all the individual samples together
 all.samples = c()
-for (i in 1:length(sample.names)){
+for (i in seq_along(sample.names)){
 
   sample.data = collect.data[collect.data$sample %in% sample.names[i],]
 
@@ -273,7 +273,7 @@ for (lc in names(wfabc.reference)){
 }
 
 final.data = c()
-for (i in 1:length(sample.names)){
+for (i in seq_along(sample.names)){
   #Subsets to sample data
   sample.data = all.samples[all.samples$sample %in% sample.names[i],]
   #gathers gene names
@@ -281,7 +281,7 @@ for (i in 1:length(sample.names)){
 
   #loops through each gene to assess amino acids
   new.gene = c()
-  for (j in 1:length(gene.names)){
+  for (j in seq_along(gene.names)){
 
     gene.data = sample.data[sample.data$locus %in% gene.names[j],]
 
@@ -359,19 +359,19 @@ wfabc.samples = wfabc.samples[wfabc.samples$allele_frequency >= min.allele.frequ
 sample.names = unique(wfabc.samples[[individual.column]])
 
 abc.data = c()
-for (i in 1:length(sample.names)){
+for (i in seq_along(sample.names)){
 
   sample.data = wfabc.samples[wfabc.samples[[individual.column]] %in% sample.names[i],]
 
   locus.names = unique(sample.data$locus)
 
-  for (j in 1:length(locus.names)) {
+  for (j in seq_along(locus.names)) {
 
     locus.data = sample.data[sample.data$locus %in% locus.names[j],]
 
     pos.names = unique(locus.data$position)
 
-    for (k in 1:length(pos.names)){
+    for (k in seq_along(pos.names)){
 
       # The comma is load-bearing. `df[vec]` on a data.frame selects COLUMNS,
       # not rows, so without it pos.data kept every row and an arbitrary subset
@@ -396,8 +396,32 @@ for (i in 1:length(sample.names)){
 
       if (any(duplicated(save.data$time_point)) == TRUE){
         if (duplicate.handling == "merge"){
-          temp.df = aggregate(cbind(sample_size, A_allele) ~ sample+locus+nuc_position+aa_position+group+time_point, data = save.data, sum)
-          save.data = temp.df
+          # aa_position is NOT a grouping variable, and that is the fix rather
+          # than an optimisation.
+          #
+          # aggregate's formula method applies na.omit across EVERY term, so one
+          # NA in a grouping column drops the whole row. Since the spliced-ORF
+          # correction, aa_position is legitimately NA wherever a call sits
+          # outside its segment's primary ORF — MP past the end of M1, NS past
+          # NS1, and so on. 424 of 12,531 calls on the cow merged set. Where
+          # such a position also had repeat time points, every row dropped and
+          # aggregate died with "no rows to aggregate": measured at A_MP:909 in
+          # animal 16, 2 rows in and 0 out.
+          #
+          # It was unreachable before that correction because the old
+          # ceiling(POS/3) always returned a number, so this is a latent crash
+          # the ORF fix introduced here and nowhere else. The swine run survived
+          # it only by not having a repeat-sampled position outside a primary ORF.
+          #
+          # aa_position is functionally determined by (locus, nuc_position), so
+          # dropping it from the grouping loses nothing and it is mapped back
+          # afterwards — NA included, because NA is the correct annotation there.
+          temp.df = aggregate(cbind(sample_size, A_allele) ~ sample+locus+nuc_position+group+time_point,
+                              data = save.data, sum)
+          temp.df$aa_position = save.data$aa_position[
+            match(paste(temp.df$locus, temp.df$nuc_position),
+                  paste(save.data$locus, save.data$nuc_position))]
+          save.data = temp.df[, names(save.data), drop = FALSE]
         }
       }# end if
 
@@ -449,7 +473,7 @@ run_wfabc = function(cmd){
 skipped.sites = c()
 
 x = 1
-for (i in 1:length(sample.names)){
+for (i in seq_along(sample.names)){
 
   sample.data = abc.data[abc.data$sample %in% sample.names[i],]
 
@@ -457,7 +481,7 @@ for (i in 1:length(sample.names)){
 
   dir.create(paste0(output.directory, "/", sample.names[i]), showWarnings = FALSE)
 
-  for (j in 1:length(locus.names)) {
+  for (j in seq_along(locus.names)) {
 
     locus.data = sample.data[sample.data$locus %in% locus.names[j],]
 
@@ -465,7 +489,7 @@ for (i in 1:length(sample.names)){
 
     pos.names = unique(locus.data$nuc_position)
 
-    for (k in 1:length(pos.names)){
+    for (k in seq_along(pos.names)){
       print(paste0("sample ", i , " locus ", j, " position ", k))
 
       pos.data = locus.data[locus.data$nuc_position %in% pos.names[k],]

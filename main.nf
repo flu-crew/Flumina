@@ -564,12 +564,65 @@ process FILTER_VARIANTS {
     script:
     // The Snakemake filter_INDEL rule existed but never ran: its output was not
     // listed in `rule all`, so Snakemake never requested it. It runs here.
+    //
+    // VariantFiltration flags a record when the expression is TRUE, so every
+    // expression below names the condition for a BAD record.
+    //
+    // FS and SOR were INVERTED until 2026-08-08 — written "FS<60.0" and
+    // "SOR<3.0" when it is HIGH values that indicate strand bias. The two
+    // filters therefore fired on precisely the records with clean strand
+    // statistics, which is why not one record passed on either dataset here:
+    // 0 of 100 on the swine run and 0 of 1,442 on the avian test data. The 96
+    // records flagged FS;SOR had FS median 0.693 (max 11.6) and SOR median
+    // 0.776 — far below the thresholds they were supposedly failing — and the
+    // single record carrying real strand bias (SOR=3.212) was the one the SOR
+    // filter let through. The other five expressions are "less than" in GATK's
+    // own recommendations too, and were always right.
+    //
+    // Thresholds are GATK's published germline hard-filter recommendations per
+    // variant type. Indels legitimately take a looser FS and ReadPosRankSum
+    // than SNPs, which the indel block had not reflected.
+    //
+    // GATK's thresholds are tuned for DIPLOID GERMLINE data at ~30x, and almost
+    // none of those assumptions hold here — haploid calling, ~1,770x median
+    // depth, balanced strand, and eight short segments that map uniquely.
+    // Measured over 1,542 real records (100 swine + 1,442 avian), FOUR of the
+    // seven can never fire on data of this shape:
+    //
+    //   FS>60             0 records   max observed FS  24.5
+    //   MQ<40             0 records   min observed MQ  52
+    //   MQRankSum<-12.5   0 records   min observed     -0.93
+    //   ReadPosRankSum<-8 0 records   min observed     -3.36
+    //
+    // They are kept anyway: inert costs nothing, they preserve GATK's own
+    // convention, and they would start doing work on a differently prepared
+    // library. The RankSums additionally have no value on two thirds of records
+    // by construction — a haploid hom-alt call has no reference reads to rank
+    // against — and a filter on a mostly-absent annotation is not a filter.
+    //
+    // QD is the one number tuned to this data rather than inherited. GATK's
+    // QD<2.0 flagged 3 of 1,542. The distribution is sharply bimodal: 1,446 sit
+    // at QD>=25 and the tail is sparse (12 records in 10-15, 8 in 15-20), so
+    // QD<15.0 lands in genuinely empty space and flags 38 (2.5%). It is a real
+    // quality signal here and not a depth artefact — the concern was that GATK's
+    // QUAL saturates at extreme depth and would depress QD for the DEEPEST
+    // sites, but the relationship runs the other way: mean depth is 252 for
+    // QD<15 against 1,849 for QD>=25, so low QD selects THIN calls, which is
+    // what it should do.
+    //
+    // Indels keep GATK's QD<2.0. The analysis above is SNP-only and the indel
+    // VCF is not consumed by the variant table, so there is no basis here for
+    // moving it.
+    //
+    // No truth set exists for any of this, so these are distribution-based
+    // judgements. That is also why nothing is DROPPED on the strength of them:
+    // the column annotates, and FluLens is where a reader chooses what to hide.
     """
     gatk VariantFiltration -R ${ref} -V ${snps} -O gatk4-filtered-snps.vcf \\
         -filter "QUAL<30.0"            --filter-name "QUAL" \\
-        -filter "QD<2.0"               --filter-name "QD" \\
-        -filter "SOR<3.0"              --filter-name "SOR" \\
-        -filter "FS<60.0"              --filter-name "FS" \\
+        -filter "QD<15.0"              --filter-name "QD" \\
+        -filter "SOR>3.0"              --filter-name "SOR" \\
+        -filter "FS>60.0"              --filter-name "FS" \\
         -filter "MQ<40.0"              --filter-name "MQ" \\
         -filter "MQRankSum<-12.5"      --filter-name "MQRankSum" \\
         -filter "ReadPosRankSum<-8.0"  --filter-name "ReadPosRankSum"
@@ -577,8 +630,8 @@ process FILTER_VARIANTS {
     gatk VariantFiltration -R ${ref} -V ${indels} -O gatk4-filtered-indels.vcf \\
         -filter "QD<2.0"               --filter-name "QD" \\
         -filter "QUAL<30.0"            --filter-name "QUAL" \\
-        -filter "FS<60.0"              --filter-name "FS" \\
-        -filter "ReadPosRankSum<-8.0"  --filter-name "ReadPosRankSum"
+        -filter "FS>200.0"             --filter-name "FS" \\
+        -filter "ReadPosRankSum<-20.0" --filter-name "ReadPosRankSum"
     """
 }
 
@@ -684,6 +737,49 @@ process GATHER_SAMPLE_VCFS {
     """
     mkdir -p '${sample}'
     cp -L in/* '${sample}'/
+    """
+}
+
+/*
+ * Per-position depth in REFERENCE coordinates, for the low-frequency FluMut
+ * screen only.
+ *
+ * apply_lofreq_to_consensus.R paints LoFreq calls onto the reference, so every
+ * position the sample has no reads at was silently taking a REFERENCE base and
+ * standing in for real data. FluMut then screened it and reported no marker
+ * there — absence of evidence arriving as evidence of absence. That was the
+ * documented residual of the 2026-08-01 reference-painting fix, left open
+ * because "this process stages no depth source". This is that source.
+ *
+ * It has to come from the BAM rather than from IRMA's own coverage tables:
+ * IRMA's are in ITS consensus coordinates, and reconciling those back to the
+ * reference is the exact coordinate problem the reference-painting approach
+ * exists to avoid. `samtools depth -a` on the reference-aligned BAM is already
+ * in the coordinate system the mask has to apply to.
+ *
+ * -a emits EVERY position including zero-coverage ones, which is the entire
+ * point — without it the uncovered positions are simply absent and
+ * indistinguishable from a truncated file. -Q 0 because the mask is asking
+ * "was there any read here at all", not "was there a confident read".
+ *
+ * The whole reference is 13,133 bp, so this is ~13k lines per sample and costs
+ * nothing to keep.
+ */
+process DEPTH_PROFILE {
+    tag "$sample"
+    label 'process_low'
+    // Published, because the consumer that matters is FluLens rather than this
+    // pipeline: it is the only component that maps FluMut's own numbering back
+    // to reference positions, so a per-marker "was there any coverage here"
+    // check can only be made there.
+    publishDir "${params.outdir}/depth_profiles", mode: params.publish_mode
+
+    input:  tuple val(sample), path(bam), path(bai)
+    output: path "${sample}.depth", emit: depth
+
+    script:
+    """
+    samtools depth -a -Q 0 ${bam} > '${sample}.depth'
     """
 }
 
@@ -904,6 +1000,10 @@ process FLUMUT {
     path 'flumut_report.xlsm',     emit: report,     optional: true
     path '*_all.tsv',              emit: unfiltered, optional: true
     path 'reference_*.tsv',        emit: refcalls,   optional: true
+    // The subtype decision, so consumers read it rather than each re-deriving
+    // it from segment names — see filter_flumut_subtype.R for why that matters
+    // now that the rule has two sources.
+    path 'subtype.tsv',            emit: subtype,    optional: true
     path 'flumut_version.txt',     emit: version
 
     script:
@@ -959,7 +1059,12 @@ process FLUMUT {
     # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
     # they are read against the wrong ruler AND the proteins have diverged too
     # far for equivalence to be assumed. Internal-gene markers are unaffected.
-    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} .
+    # IRMA-consensus-contigs is passed as a SECOND subtype source. IRMA writes the
+    # subtype it assigned into each consensus header (>A_HA_H5, >A_NA_N1), so a
+    # reference with bare A_HA / A_NA names — which is the repo's own reference,
+    # and the bundled H5N1 test_dataset — can still be resolved instead of being
+    # treated as unconfirmable. The reference still wins where it states one.
+    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} . IRMA-consensus-contigs
     """
 }
 
@@ -972,6 +1077,7 @@ process FLUMUT_LOWFREQ {
     path consensus_dir, stageAs: 'IRMA-consensus-contigs'
     path vcf_dirs,      stageAs: 'vcf_files/*'
     path reference
+    path depth_files,   stageAs: 'depth/*'
 
     output:
     path 'markers.tsv',        emit: markers,    optional: true
@@ -980,6 +1086,9 @@ process FLUMUT_LOWFREQ {
     path 'flumut_report.xlsm', emit: report,     optional: true
     path '*_all.tsv',          emit: unfiltered, optional: true
     path 'reference_*.tsv',    emit: refcalls,   optional: true
+    // Same as FLUMUT: publish the subtype decision rather than leaving it in a
+    // log for every consumer to re-derive.
+    path 'subtype.tsv',        emit: subtype,    optional: true
     path 'flumut_version.txt', emit: version
 
     script:
@@ -1009,8 +1118,12 @@ process FLUMUT_LOWFREQ {
     # Reference passed explicitly: the low-frequency screen paints LoFreq calls
     # onto the REFERENCE, not the consensus, because LoFreq's coordinates are
     # the reference's and IRMA's consensus is built de novo. See the script header.
+    # depth/ carries one <sample>.depth per sample from DEPTH_PROFILE. Positions
+    # with zero coverage are written as N rather than taking a reference base —
+    # see the script header. The directory is passed rather than the files so an
+    # absent depth source degrades to the old behaviour instead of failing.
     Rscript ${scripts}/apply_lofreq_to_consensus.R mutated.fasta ${params.flumut_freq_threshold} \\
-        ${reference} \$r_args
+        ${reference} depth \$r_args
 
     if [ ! -s mutated.fasta ]; then
         echo "no low-frequency variants (AF >= ${freq_pct}%) found — skipping flumut" >&2
@@ -1054,7 +1167,12 @@ process FLUMUT_LOWFREQ {
     # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
     # they are read against the wrong ruler AND the proteins have diverged too
     # far for equivalence to be assumed. Internal-gene markers are unaffected.
-    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} .
+    # IRMA-consensus-contigs is passed as a SECOND subtype source. IRMA writes the
+    # subtype it assigned into each consensus header (>A_HA_H5, >A_NA_N1), so a
+    # reference with bare A_HA / A_NA names — which is the repo's own reference,
+    # and the bundled H5N1 test_dataset — can still be resolved instead of being
+    # treated as unconfirmable. The reference still wins where it states one.
+    Rscript ${scripts}/filter_flumut_subtype.R ${reference} markers.tsv ${keep_hana} . IRMA-consensus-contigs
     """
 }
 
@@ -1242,7 +1360,11 @@ workflow {
     // Applies LoFreq variants to IRMA consensus sequences, creating
     // mutated pseudo-consensus for FluMut marker screening.
     if (asBool(params.run_irma) && asBool(params.flumut_lowfreq)) {
-        FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs, file(params.reference))
+        // Depth is computed only when this screen actually runs — it is the one
+        // consumer, and 143 extra tasks are not worth paying for otherwise.
+        depth_files = DEPTH_PROFILE(final_bam).depth.collect()
+        FLUMUT_LOWFREQ(file("${projectDir}/Scripts"), r.irma, vcf_dirs,
+                       file(params.reference), depth_files)
     }
 
     // Optional population-genetics analyses. Both read the config.cfg written by

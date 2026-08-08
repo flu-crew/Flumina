@@ -25,17 +25,47 @@
 #### needed and de novo assembly is the more robust choice for divergent
 #### samples. Only this low-frequency step moves.
 ####
-#### RESIDUAL, and it is the reason for the presence gate below: where a sample
-#### has no coverage, a reference base would stand in for no data. Eight of the
-#### nine residual mismatches above are exactly that — LoFreq made no call,
-#### mostly near the 3' end of NS. Whole segments are handled here (a segment the
-#### sample never assembled is skipped, not emitted as bare reference). Within a
-#### segment it is not, because that needs per-position depth and this process
-#### stages no depth source. Do not read absence of a marker as evidence.
+#### NO-COVERAGE POSITIONS ARE COUNTED AND REPORTED, NOT MASKED — 2026-08-08.
+####
+#### The residual this addresses is real: where a sample has no reads, a
+#### reference base stands in for no data, FluMut screens it, and "no marker
+#### here" gets reported on the strength of nothing at all.
+####
+#### **Writing N there was built, measured, and rejected.** On MC-696 (166
+#### uncovered positions in NA) it suppressed 6 markers correctly and
+#### MANUFACTURED 3 that were not there — NA-1:I222K, NA-1:I223K, NA-1:Q136R —
+#### because a heavily masked segment perturbs FluMut's own alignment and shifts
+#### which residue it reads at each numbered position. Verified on one sample in
+#### isolation, so it is not a cross-sample table artefact. Masking with "-"
+#### was worse: 15 markers lost and 3 different spurious ones. A single N is
+#### harmless and ten are harmless; 166 are not.
+####
+#### Inventing a marker is a worse failure than reporting one on thin evidence,
+#### so the sequence is left exactly as it was. **Do not re-implement masking
+#### here** — it looks like the obvious fix and it is measurably not.
+####
+#### What happens instead: depth is read, the exposure is counted and logged, and
+#### DEPTH_PROFILE publishes the per-position depth so FluLens can flag markers
+#### resting on no coverage. That is the right place for it, because FluLens is
+#### the only component that maps FluMut's own numbering (HA1-5, NA-1, ...) back
+#### to reference positions — see calibrateFluMut() in its handoff. A per-marker
+#### coverage check needs that mapping; this script does not have it.
+####
+#### Depth comes from DEPTH_PROFILE (`samtools depth -a` on the reference-aligned
+#### BAM), already in the reference coordinates this script paints in. IRMA's own
+#### coverage tables are NOT usable: they are in IRMA's de novo consensus
+#### coordinates, and reconciling those back is precisely the coordinate problem
+#### reference-painting exists to avoid.
+####
+#### Zero coverage and below-MIN_DEPTH are counted separately. Masking at
+#### depth < 100 was never on the table: MC-696 has 86% of its positions in the
+#### 1-99 band and MC-533 75%, so it would blank most thin libraries outright.
+####
+#### Degrades: no depth directory means no counts, and everything else unchanged.
 ####
 #### Usage:
 ####   Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold> \
-####       <reference.fa> <irma_fasta> <lofreq_vcf> [<irma_fasta2> <vcf2> ...]
+####       <reference.fa> <depth_dir|NULL> <irma_fasta> <lofreq_vcf> [...]
 ####
 #### Output headers are already >sample_SEGMENT, ready for FluMut. Do NOT pass
 #### this through rename_for_flumut.R: that takes the sample name from the
@@ -43,15 +73,16 @@
 
 args = commandArgs(trailingOnly = TRUE)
 
-if (length(args) < 5) {
+if (length(args) < 6) {
   cat("Usage: Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold>",
-      "<reference.fa> <irma_fasta> <lofreq_vcf> [...]\n", file = stderr())
+      "<reference.fa> <depth_dir|NULL> <irma_fasta> <lofreq_vcf> [...]\n", file = stderr())
   quit(status = 1)
 }
 
 output_fasta   = args[1]
 freq_threshold = as.numeric(args[2])
 reference_path = args[3]
+depth_dir      = args[4]
 
 if (is.na(freq_threshold) || freq_threshold < 0 || freq_threshold > 1) {
   cat("Error: freq_threshold must be a number between 0 and 1\n", file = stderr())
@@ -62,10 +93,37 @@ if (!file.exists(reference_path)) {
   quit(status = 1)
 }
 
-pairs = args[-c(1, 2, 3)]
+pairs = args[-c(1, 2, 3, 4)]
 if (length(pairs) %% 2 != 0) {
   cat("Error: must provide paired FASTA/VCF arguments\n", file = stderr())
   quit(status = 1)
+}
+
+# "NULL", empty, or a directory that is not there all mean "no depth source" and
+# leave the sequence unmasked. Stated once here so the per-sample lookup below
+# has nothing to decide.
+use_depth = !is.na(depth_dir) && nzchar(depth_dir) &&
+            depth_dir != "NULL" && dir.exists(depth_dir)
+if (!use_depth)
+  cat("No depth source: no-coverage positions will take a reference base, as before.\n",
+      "  Absence of a marker is NOT evidence of absence in this output.\n",
+      sep = "", file = stderr())
+
+# Reported alongside the mask so the exposure below MIN_DEPTH stays visible
+# without a second threshold being imposed on the sequence itself.
+MIN_DEPTH_NOTE = 100
+
+# Returns a named list: segment -> integer vector of depths, or NULL.
+read_depth = function(sample_name) {
+  if (!use_depth) return(NULL)
+  p = file.path(depth_dir, paste0(sample_name, ".depth"))
+  if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
+  d = try(utils::read.table(p, sep = "\t", header = FALSE, quote = "",
+                            comment.char = "", stringsAsFactors = FALSE,
+                            colClasses = c("character", "integer", "integer")),
+          silent = TRUE)
+  if (inherits(d, "try-error") || nrow(d) == 0) return(NULL)
+  split(d[[3]], d[[1]])
 }
 
 read_fasta = function(path) {
@@ -107,6 +165,7 @@ cat(sprintf("Reference: %s (%d segments)\n", reference_path, length(reference)),
 n_samples = length(pairs) / 2
 out_fh = file(output_fasta, "w")
 total_applied = 0; total_skipped = 0; total_oob = 0
+total_masked = 0; total_thin = 0; samples_masked = 0
 
 for (i in seq(1, length(pairs), by = 2)) {
   fasta_path = pairs[i]
@@ -136,7 +195,9 @@ for (i in seq(1, length(pairs), by = 2)) {
     variants[[length(variants) + 1]] = list(chrom = f[1], pos = as.integer(f[2]), alt = f[5])
   }
 
-  applied = 0; oob = 0; emitted = 0
+  depth = read_depth(sample_name)
+
+  applied = 0; oob = 0; emitted = 0; masked = 0; thin = 0
   for (chrom in names(reference)) {
     if (!(chrom %in% assembled)) { total_skipped = total_skipped + 1; next }
     seq_chars = strsplit(reference[[chrom]], "")[[1]]
@@ -146,15 +207,44 @@ for (i in seq(1, length(pairs), by = 2)) {
         seq_chars[v$pos] = v$alt; applied = applied + 1
       } else oob = oob + 1
     }
+
+    # Zero-coverage positions are COUNTED, never written into the sequence.
+    #
+    # Writing N there was implemented and then rejected on measurement: it
+    # suppressed 6 markers correctly on MC-696 and MANUFACTURED 3 that were not
+    # there (NA-1:I222K, NA-1:I223K, NA-1:Q136R), because a heavily masked
+    # segment perturbs FluMut's own alignment and shifts which residue it reads
+    # at each numbered position. Masking with "-" instead was worse: 15 lost and
+    # 3 different spurious markers. A single N is harmless and ten are harmless;
+    # 166 are not. Inventing a marker is a worse failure than reporting one on
+    # thin evidence, so the sequence is left alone.
+    #
+    # The counts go to the log and the depth files are published, so the
+    # exposure is visible and FluLens can flag it against its own calibrated
+    # marker coordinates — which is where a per-marker coverage check belongs,
+    # because that is the only place FluMut's numbering is mapped back to
+    # reference positions.
+    dv = if (!is.null(depth)) depth[[chrom]] else NULL
+    if (!is.null(dv)) {
+      n = min(length(dv), length(seq_chars))
+      if (n > 0) {
+        masked = masked + sum(dv[seq_len(n)] == 0)
+        thin   = thin   + sum(dv[seq_len(n)] > 0 & dv[seq_len(n)] < MIN_DEPTH_NOTE)
+      }
+    }
+
     writeLines(c(paste0(">", sample_name, "_", normalise_segment(chrom)),
                  paste(seq_chars, collapse = "")), out_fh)
     emitted = emitted + 1
   }
 
   total_applied = total_applied + applied; total_oob = total_oob + oob
-  cat(sprintf("  %s: %d variant(s) applied across %d segment(s)%s\n",
+  total_masked = total_masked + masked; total_thin = total_thin + thin
+  if (masked > 0) samples_masked = samples_masked + 1
+  cat(sprintf("  %s: %d variant(s) applied across %d segment(s)%s%s\n",
               sample_name, applied, emitted,
-              if (oob > 0) sprintf(" [%d outside the reference, dropped]", oob) else ""),
+              if (oob > 0) sprintf(" [%d outside the reference, dropped]", oob) else "",
+              if (masked > 0) sprintf(" [%d position(s) with NO coverage — markers there rest on no data]", masked) else ""),
       file = stderr())
 }
 
@@ -167,3 +257,14 @@ if (total_skipped > 0)
               total_skipped), file = stderr())
 if (total_oob > 0)
   cat(sprintf("  %d call(s) fell outside the reference and were dropped\n", total_oob), file = stderr())
+if (use_depth) {
+  cat(sprintf("  %d position(s) across %d sample(s) have ZERO coverage: the reference base stands in\n",
+              total_masked, samples_masked), file = stderr())
+  cat(sprintf("  %d further position(s) have coverage below %d\n",
+              total_thin, MIN_DEPTH_NOTE), file = stderr())
+  cat("  Absence of a marker at those positions is NOT evidence of absence. They are\n",
+      "  reported rather than masked because writing N into the sequence measurably\n",
+      "  MANUFACTURES markers — see the script header. Per-position depth is published\n",
+      "  alongside the results for FluLens to flag against calibrated marker positions.\n",
+      sep = "", file = stderr())
+}

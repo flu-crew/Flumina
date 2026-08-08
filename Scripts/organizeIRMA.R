@@ -48,7 +48,7 @@ if (dir.exists(output.directory) == F) {
 sample.names = list.files(irma.directory, recursive = F, full.names = F)
 
 #Loops through each sample and  moves them to new directory
-for (i in 1:length(sample.names)) {
+for (i in seq_along(sample.names)) {
   #################################################
   ### Part A: prepare for loading and checks
   #################################################
