@@ -87,8 +87,13 @@ collect.data[, reference:=as.character(reference)]
 collect.data[, alternative:=as.character(alternative)]
 
 #Loops through each locus and does operations on them
+# seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
+# c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
+# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" — an
+# error naming a file that was never meant to exist, which says nothing about
+# the real problem, that the directory matched nothing.
 x = 1
-for (i in 1:length(vcf.files)){
+for (i in seq_along(vcf.files)){
   
   #Counts comment lines to find first line
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
@@ -254,6 +259,11 @@ for (i in seq_along(ivar.files)) {
     # row it flagged as failing arrives looking like a clean call. On MC-497's
     # real output, 25 of 34 rows are PASS=FALSE.
     ivar_pass        = ivar.tab$PASS,
+    # GATK4's FILTER verdict, which iVar rows do not have. Declared here rather
+    # than assigned after the bind because ivar.data is legitimately empty when
+    # IVAR=FALSE, and adding a column to a zero-row table is the kind of thing
+    # that works until the day it is actually zero-row.
+    gatk_filter      = NA_character_,
     stringsAsFactors = FALSE
   )
 }
@@ -267,7 +277,8 @@ if (length(ivar.rows) > 0) {
     method = character(), sample = character(), locus = character(),
     position = numeric(), reference = character(), alternative = character(),
     quality = numeric(), depth = numeric(), map_quality = numeric(),
-    allele_frequency = numeric(), aa_position = numeric(), ivar_pass = character())
+    allele_frequency = numeric(), aa_position = numeric(), ivar_pass = character(),
+    gatk_filter = character())
 }
 
 cat(sprintf("iVar: %d files, %d SNP rows kept, %d indel rows dropped\n",
@@ -288,8 +299,11 @@ all.files = list.files(vcf.directory, recursive = T)
 vcf.files = all.files[grep(paste0(vcf.string, "$"), all.files)]
 
 #Collects the super cool data
+# gatk_filter carries VariantFiltration's own verdict — see the block where it
+# is read, below.
 header.data = c("method", "sample", "locus", "position", "reference",
-                "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position")
+                "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position",
+                "gatk_filter")
 
 #Sets up data collection data.frame
 collect.data = data.table::data.table(matrix(as.numeric(0),
@@ -302,30 +316,43 @@ collect.data[, sample:=as.character(sample)]
 collect.data[, locus:=as.character(locus)]
 collect.data[, reference:=as.character(reference)]
 collect.data[, alternative:=as.character(alternative)]
+collect.data[, gatk_filter:=as.character(gatk_filter)]
 
 #Loops through each locus and does operations on them
+# seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
+# c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
+# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" — an
+# error naming a file that was never meant to exist, which says nothing about
+# the real problem, that the directory matched nothing.
 x = 1
-for (i in 1:length(vcf.files)){
-  
+for (i in seq_along(vcf.files)){
+
   #Counts comment lines to find first line
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
   skip = 0
   line = readLines(VCF, 1)
-  
+
   #Finds contig line
   while(!grepl("#CHROM", line)) {
     skip = skip + 1
     line = readLines(VCF, 1)
   }
-  
+
   close(VCF)
-  
+
   #Reads in VCF after finding which lines to skip
   VCF = read.table(paste0(vcf.directory, "/", vcf.files[i]), skip = skip, comment.char = "", header = TRUE,
                    stringsAsFactors = FALSE, check.names = FALSE)
-  
+
+  # FILTER is a mandatory VCF column, but read it defensively and once per file
+  # rather than per row. Values are kept VERBATIM, including a bare "." — that
+  # is the VCF's own way of saying "no filtering was applied", which is a
+  # different statement from the NA the other two callers get, and collapsing
+  # the two would lose exactly the distinction this column exists to make.
+  filter.col = if ("FILTER" %in% names(VCF)) as.character(VCF$FILTER) else rep(NA_character_, max(nrow(VCF), 0))
+
   if (is.null(nrow(VCF)) == TRUE || nrow(VCF) == 0){
-    
+
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "GATK4")
     #Collect data
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
@@ -339,6 +366,7 @@ for (i in 1:length(vcf.files)){
     data.table::set(collect.data, i = as.integer(x), j = match("depth", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("map_quality", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("aa_position", header.data), value = 0)
+    data.table::set(collect.data, i = as.integer(x), j = match("gatk_filter", header.data), value = 0)
     x = x + 1
     next
   }
@@ -346,7 +374,22 @@ for (i in 1:length(vcf.files)){
   for (j in 1:nrow(VCF)){
     
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "GATK4")
-    
+
+    # GATK4's own verdict on its own call, and the reason it is worth a column
+    # is the same one that earned ivar_pass its own: gatk4-filtered-snps.vcf is
+    # VariantFiltration's output, which ANNOTATES rather than removes.
+    # Downstream is expected to honour FILTER, and until now nothing here read
+    # it — so every record GATK4 flagged as failing its strand-bias tests
+    # arrived in the table looking exactly like a clean call. On the swine WGS
+    # run across all 143 samples that was EVERY record: 96 FS;SOR, 3 FS;QD;SOR,
+    # 1 FS, and 0 PASS.
+    #
+    # Annotated, not dropped. Whether non-PASS rows should be removed outright
+    # is a decision that would change published results, and it is not this
+    # script's to make — but it cannot be made at all while the column is
+    # invisible.
+    data.table::set(collect.data, i = as.integer(x), j = match("gatk_filter", header.data), value = filter.col[j])
+
     #Collect data
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
     #Sample data
@@ -390,11 +433,29 @@ collect.data = collect.data[collect.data$locus != 0,]
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
-# ivar_pass belongs only to iVar rows, so the other two callers are given the
-# column as NA before the bind. NA means "this caller has no such verdict",
-# which is a different statement from FALSE and must not collapse into it.
-lofreq.data$ivar_pass = NA_character_
-collect.data$ivar_pass = NA_character_
+# ivar_pass belongs only to iVar rows and gatk_filter only to GATK4's, so each
+# caller is given the other's column as NA before the bind. NA means "this
+# caller has no such verdict" — a different statement from iVar's FALSE, and a
+# different one again from GATK4's own ".", which means "no filter was
+# applied". None of the three may collapse into another.
+#
+# set() rather than $<-, because it adds the column by reference and is correct
+# on a zero-row table; $<- on a zero-row data.table is an error waiting for the
+# first run that produces no calls for a caller.
+data.table::set(lofreq.data,  j = "ivar_pass",   value = NA_character_)
+data.table::set(lofreq.data,  j = "gatk_filter", value = NA_character_)
+data.table::set(collect.data, j = "ivar_pass",   value = NA_character_)
+
+# rbind binds by POSITION, not by name. gatk_filter arrives inside GATK4's own
+# header.data but is appended to the end of the other two, so without this the
+# three tables agree on their column NAMES and disagree on their order — which
+# silently interleaves ivar_pass and gatk_filter values between callers.
+bind.order = c("method", "sample", "locus", "position", "reference", "alternative",
+               "quality", "depth", "map_quality", "allele_frequency", "aa_position",
+               "ivar_pass", "gatk_filter")
+data.table::setcolorder(lofreq.data,  bind.order)
+data.table::setcolorder(ivar.data,    bind.order)
+data.table::setcolorder(collect.data, bind.order)
 
 final.data = rbind(lofreq.data, ivar.data, collect.data)
 
@@ -479,6 +540,19 @@ cat(sprintf("  Rows by caller: LoFreq %d, iVar %d, GATK4 %d\n",
             sum(is.lofreq), sum(is.ivar), sum(!is.lofreq & !is.ivar)))
 cat(sprintf("  GATK4 rows: %d took a fraction from LoFreq or iVar, %d genotype-only (allele_fraction NA)\n",
             n.borrow, n.geno))
+
+# Counted per CALL, before the amino-acid expansion below, so this is a count of
+# records GATK4 wrote rather than of table rows. Printed because the swine WGS
+# run's answer was that NOT ONE of 100 records passed — 96 FS;SOR, 3 FS;QD;SOR,
+# 1 FS, 0 PASS — and that was invisible for as long as nothing read the column.
+gatk.filt = final.data$gatk_filter[final.data$method == "GATK4"]
+if (length(gatk.filt) > 0) {
+  ft = sort(table(ifelse(is.na(gatk.filt), "(missing)", gatk.filt)), decreasing = TRUE)
+  cat(sprintf("  GATK4 FILTER: %s\n", paste(names(ft), ft, sep = "=", collapse = "  ")))
+  n.pass = sum(gatk.filt %in% c("PASS", "."), na.rm = TRUE)
+  cat(sprintf("    %d of %d GATK4 records PASS or unfiltered, %d flagged by VariantFiltration\n",
+              n.pass, length(gatk.filt), length(gatk.filt) - n.pass))
+}
 
 # Reported per CHANGE rather than per row: both callers contribute a row each,
 # so counting rows would double every disagreement.
