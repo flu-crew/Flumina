@@ -974,12 +974,18 @@ process WFABC {
  * calling --update here would mean the SAME pipeline version can report
  * different markers on different days with no record of why — the exact
  * silent-nondeterminism failure this pipeline's reproducibility work (pinned
- * envs, trace.txt, timeline.html) exists to prevent. The DB version actually
- * used is pinned by the flumut=0.6.5 conda package and is bundled in the
- * container image, so it is fixed for as long as that image tag is fixed.
- * `flumut --version` is captured alongside the results as the provenance
- * record. To deliberately pick up new markers, rebuild the image against a
- * newer flumut pin — a conscious, recorded decision, not an implicit one.
+ * envs, trace.txt, timeline.html) exists to prevent.
+ *
+ * Pinning the TOOL is not enough, and this comment used to claim otherwise.
+ * flumutdb is a separate conda package: flumut=0.6.5 resolves with 6.5 or 6.7
+ * depending on when the image was built, and the image and a local env built
+ * from the same environment.yaml were found carrying different ones. So the
+ * database is pinned explicitly there too, and the version is what actually
+ * fixes the markers — the image tag only fixes it by accident of build date.
+ *
+ * `flumut --version` is captured alongside the results as the provenance record;
+ * note it reports the TOOL, not the database. To deliberately pick up new
+ * markers, move the flumutdb pin — a conscious, recorded decision.
  */
 process FLUMUT {
     label 'process_low'
@@ -1176,6 +1182,70 @@ process FLUMUT_LOWFREQ {
     """
 }
 
+/*
+ * Where FluMut's marker numbering lands on THIS run's reference.
+ *
+ * A marker reads `HA1-5:G224S` — residue 224 of HA1, in the numbering of
+ * FluMut's own reference. Nothing in that string says where residue 224 falls in
+ * the reference this run was mapped against, and readers were recovering it by
+ * searching for a constant offset that put the markers onto the translated
+ * reference. That fails twice over: small proteins carry too few markers to pin
+ * an offset down at all, and HA/NA have diverged by INDELS between subtypes, so
+ * no single offset is correct across the protein. On the swine H3N2 run the best
+ * shift for HA1 explained 8 of 14 markers — neither a fit nor a clean failure.
+ *
+ * FluMut ships its reference sequences and their CDS annotations in
+ * flumut_db.sqlite, so this is a fact to be read and aligned rather than a
+ * parameter to be estimated. Aligning protein-to-protein absorbs the indels,
+ * which is what makes HA and NA work on any subtype instead of only on H5N1.
+ *
+ * Validated against FluMut's OWN placement — reference_mutations.tsv states the
+ * residue it found at each marker position in this reference, and the map agreed
+ * at 112 of 112 positions across an H3N2 and an H5N1 run, including every
+ * cross-subtype HA/NA position that no offset could place.
+ *
+ * makeGTF.R runs here rather than consuming SNPGENIE's copy because that process
+ * is optional and this must not inherit its switch. It is the same script, so
+ * there is still only one definition of what a CDS is.
+ */
+process FLUMUT_POSITION_MAP {
+    label 'process_low'
+    // Published beside the marker tables it explains, so a reader finds the two
+    // together.
+    publishDir "${params.outdir}/variant_analysis/flumut", mode: params.publish_mode
+
+    input:
+    path scripts
+    path config
+    path reference
+
+    output:
+    path 'flumut_position_map.tsv', emit: map, optional: true
+
+    script:
+    """
+    cp ${config} run_config.cfg
+    # Absolute, and resolved inside this task's directory — same reason SNPGENIE
+    # appends it: makeGTF.R builds paths from OUTPUT_DIRECTORY and the pipeline's
+    # relocatable "." does not survive a setwd().
+    echo "OUTPUT_DIRECTORY=\\"\$PWD\\"" >> run_config.cfg
+    # Point makeGTF.R at the STAGED reference rather than the absolute path the
+    # config carries. Both work inside the container, but only this one guarantees
+    # the GTF and the translation below come from the same bytes — and a codon
+    # numbering derived from a different file than the residues it numbers is the
+    # kind of disagreement that shows up as an off-by-a-few and nothing else.
+    # Appending wins: the R config parsers keep the last value seen for a key.
+    echo "REFERENCE_FILE=\\"\$PWD/${reference}\\"" >> run_config.cfg
+
+    Rscript ${scripts}/makeGTF.R run_config.cfg
+
+    python3 ${scripts}/flumut_position_map.py \\
+        --reference ${reference} \\
+        --gtf reference_gtf \\
+        --out flumut_position_map.tsv
+    """
+}
+
 /* ==========================================================================
  * Workflow
  * ========================================================================== */
@@ -1354,6 +1424,13 @@ workflow {
     // Needs IRMA consensus, so it can only run when IRMA ran.
     if (asBool(params.run_irma) && asBool(params.flumut)) {
         FLUMUT(file("${projectDir}/Scripts"), r.irma, file(params.reference))
+    }
+
+    // Where FluMut's numbering lands on this reference. Depends only on the
+    // reference and the marker database, not on the samples, so it runs once for
+    // whichever screens are enabled rather than per screen.
+    if (asBool(params.run_irma) && (asBool(params.flumut) || asBool(params.flumut_lowfreq))) {
+        FLUMUT_POSITION_MAP(file("${projectDir}/Scripts"), r.config, file(params.reference))
     }
 
     // Screen low-frequency variants above threshold for H5N1 markers.

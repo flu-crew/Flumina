@@ -48,4 +48,20 @@ dependencies:
   - r-foreach=1.5.2
   - r-coda=0.19_4
   - flumut=0.6.5
+# The marker DATABASE is a separate package from the tool and floats on its own.
+# Pinning flumut alone does not fix it: flumut=0.6.5 resolves happily with
+# flumutdb 6.5 or 6.7, and which one you get depends on when the image was built.
+# That is the silent nondeterminism this pipeline pins everything else to avoid —
+# the same reference and the same reads would report different markers on
+# different days, with nothing in the output saying why. 6.7 is what the current
+# image ships and what the position map was validated against. Moving it is a
+# deliberate, recorded decision, exactly like the ivar pin above.
+  - flumutdb=6.7
+# Used by flumut_position_map.py to align FluMut's reference proteins onto this
+# run's. It arrives transitively through flumut today, which means a flumut
+# update could drop or downgrade it and take the position map with it. >=1.86 is
+# the real requirement: PairwiseAligner.end_insertion_score is the renamed
+# spelling of the free-end-gap score, and without free end gaps HA1 aligns across
+# the whole ORF and is placed wrongly rather than not at all.
+  - biopython>=1.86
 
