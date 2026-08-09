@@ -1246,6 +1246,68 @@ process FLUMUT_POSITION_MAP {
     """
 }
 
+/*
+ * Where IRMA's CONSENSUS lands on this reference — the same argument as
+ * FLUMUT_POSITION_MAP, one level down.
+ *
+ * IRMA's consensus is the one FluMut screens. Anything that instead paints
+ * calls above 50% onto the reference is a second, independent derivation of the
+ * same quantity, and the two are not interchangeable: IRMA maps to its own
+ * refined contig and recruits reads BWA soft-clips at the segment termini.
+ *
+ * Reading it needs a coordinate frame, and a contig does not automatically
+ * share the reference's. On the swine WGS run 58 of 1,716 sample x product
+ * frames are truncated and one contig is a base LONGER than the reference —
+ * a single inserted base shifts every codon after it, so a position-1
+ * assumption returns confidently wrong residues rather than failing. The frame
+ * is therefore aligned per sample per segment, once, here, rather than
+ * re-inferred by every reader.
+ *
+ * IRMA_results is staged for the coverage tables, not the assemblies: the depth
+ * floor has to be applied to the alignment that PRODUCED the call. The two
+ * depths disagree exactly where IRMA is interesting — at MC-732 A_NS positions
+ * 1-5 IRMA has 56-61x where BWA has 2-3x.
+ */
+process IRMA_POSITION_MAP {
+    label 'process_low'
+    // Beside the amino-acid tables it shares a coordinate frame with, not under
+    // flumut/ — this describes IRMA's consensus, not the marker screen.
+    publishDir "${params.outdir}/variant_analysis/irma", mode: params.publish_mode
+
+    input:
+    path scripts
+    path config
+    path reference
+    path consensus_dir, stageAs: 'IRMA-consensus-contigs'
+    path irma_dirs, stageAs: 'IRMA_results/*'
+
+    output:
+    path 'irma_position_map.tsv', emit: map,      optional: true
+    path 'irma_consensus_aa.tsv', emit: residues, optional: true
+
+    script:
+    """
+    cp ${config} run_config.cfg
+    # Same two appends as FLUMUT_POSITION_MAP, for the same reasons: makeGTF.R
+    # builds paths from OUTPUT_DIRECTORY and the pipeline's relocatable "." does
+    # not survive a setwd(), and the GTF must come from the same bytes as the
+    # reference the residues are numbered against.
+    echo "OUTPUT_DIRECTORY=\\"\$PWD\\"" >> run_config.cfg
+    echo "REFERENCE_FILE=\\"\$PWD/${reference}\\"" >> run_config.cfg
+
+    Rscript ${scripts}/makeGTF.R run_config.cfg
+
+    python3 ${scripts}/irma_position_map.py \\
+        --reference ${reference} \\
+        --gtf reference_gtf \\
+        --contigs IRMA-consensus-contigs \\
+        --irma IRMA_results \\
+        --min-depth ${asNum(params.min_depth)} \\
+        --out irma_position_map.tsv \\
+        --out-aa irma_consensus_aa.tsv
+    """
+}
+
 /* ==========================================================================
  * Workflow
  * ========================================================================== */
@@ -1431,6 +1493,15 @@ workflow {
     // whichever screens are enabled rather than per screen.
     if (asBool(params.run_irma) && (asBool(params.flumut) || asBool(params.flumut_lowfreq))) {
         FLUMUT_POSITION_MAP(file("${projectDir}/Scripts"), r.config, file(params.reference))
+    }
+
+    // Where IRMA's consensus lands on this reference. Not gated on the FluMut
+    // switches — it describes IRMA's assembly, which is worth placing whether or
+    // not markers are being screened. Needs the contigs for the sequence and
+    // IRMA_results for the coverage the depth floor is read from.
+    if (asBool(params.run_irma)) {
+        IRMA_POSITION_MAP(file("${projectDir}/Scripts"), r.config,
+                          file(params.reference), r.irma, irma_dirs)
     }
 
     // Screen low-frequency variants above threshold for H5N1 markers.
