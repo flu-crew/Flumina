@@ -38,10 +38,23 @@ outdir          <- args[6]
 
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
+# (Details of an unpublished run were removed here.)
+#
+#
+#
+#
+#
+#
+# It also silently breaks the invariance test below: rv becomes "TRUE" while the
+# samples say "T", so `all(sv == rv)` is never true and the column is kept as
+# informative even when every sample matches the reference. That has not changed
+# a result yet -- on this run all 8 columns vary on their own merits -- but it is
+# a live trap the moment a T/F column is genuinely invariant.
 rd <- function(p) {
   if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
   read.table(p, sep = "\t", header = TRUE, quote = "", comment.char = "",
-             check.names = FALSE, stringsAsFactors = FALSE, na.strings = "")
+             check.names = FALSE, stringsAsFactors = FALSE, na.strings = "",
+             colClasses = "character")
 }
 wr <- function(d, p) write.table(d, p, sep = "\t", quote = FALSE, row.names = FALSE, na = "")
 
