@@ -1284,6 +1284,11 @@ process IRMA_POSITION_MAP {
     output:
     path 'irma_position_map.tsv', emit: map,      optional: true
     path 'irma_consensus_aa.tsv', emit: residues, optional: true
+    // IRMA's minority calls, placed and stated against the reference base.
+    // Corroboration only — IRMA is the one alignment that does not come from
+    // the shared BWA BAM, so it is the only caller whose agreement says
+    // anything about alignment error.
+    path 'irma_variants.tsv',     emit: variants, optional: true
 
     script:
     """
@@ -1304,7 +1309,8 @@ process IRMA_POSITION_MAP {
         --irma IRMA_results \\
         --min-depth ${asNum(params.min_depth)} \\
         --out irma_position_map.tsv \\
-        --out-aa irma_consensus_aa.tsv
+        --out-aa irma_consensus_aa.tsv \\
+        --out-var irma_variants.tsv
     """
 }
 
