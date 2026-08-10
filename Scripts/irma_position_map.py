@@ -79,6 +79,29 @@ A residue absent from that file, in a product whose status is not `absent` or
 `uncovered` are written out rather than left silent on purpose: an absent row
 must never be readable as "IRMA agrees", which is the misreading the
 zero-coverage marker flag exists to prevent.
+
+`irma_variants.tsv` -- IRMA's MINORITY calls, placed and reconciled:
+
+    sample locus ref_pos ref_base cons_allele cons_freq minor_allele minor_freq
+    minor_count total cons_is_ref minor_is_ref
+
+IRMA is the only independent alignment in this pipeline: LoFreq, iVar and GATK4
+all consume the same BWA BAM, so their agreement carries no information about
+alignment error and IRMA's does. That makes these worth having as CORROBORATION.
+
+They cannot simply be compared to a caller's ALT, for two reasons this file
+resolves rather than leaves to the reader:
+
+  * the position is in IRMA's contig coordinates, so it needs the same alignment
+    the consensus needed; and
+  * IRMA states its minority allele against ITS OWN consensus, not the
+    reference. Where IRMA's consensus already differs from the reference, the
+    minority allele can BE the reference base -- a partial reversion, which
+    reads exactly backwards if you assume "minority" means "non-reference".
+
+Both alleles are therefore emitted with the reference base beside them, and
+`cons_is_ref` / `minor_is_ref` state the relationship outright instead of
+leaving it to be rediscovered per reader.
 """
 import argparse
 import os
@@ -169,6 +192,43 @@ def resolve_locus(name, seqs):
     return None
 
 
+def read_variants(path):
+    """IRMA's minority-allele calls for one segment, in CONTIG coordinates.
+
+    Returns (position, consensus_allele, minority_allele, minority_freq,
+    minority_count, total) per row. IRMA states the minority allele against ITS
+    OWN consensus, which is the whole reason these cannot be compared to a
+    caller's ALT until both are expressed against the run's reference.
+    """
+    out = []
+    try:
+        with open(path) as fh:
+            head = fh.readline().rstrip('\n').split('\t')
+            ix = {n: i for i, n in enumerate(head)}
+            need = ('Position', 'Consensus_Allele', 'Minority_Allele',
+                    'Consensus_Frequency', 'Minority_Frequency',
+                    'Minority_Count', 'Total')
+            if any(n not in ix for n in need):
+                return out
+            for line in fh:
+                c = line.rstrip('\n').split('\t')
+                if len(c) < len(head):
+                    continue
+                try:
+                    out.append((int(c[ix['Position']]),
+                                c[ix['Consensus_Allele']].upper(),
+                                float(c[ix['Consensus_Frequency']]),
+                                c[ix['Minority_Allele']].upper(),
+                                float(c[ix['Minority_Frequency']]),
+                                int(c[ix['Minority_Count']]),
+                                int(c[ix['Total']])))
+                except ValueError:
+                    continue
+    except OSError:
+        return out
+    return out
+
+
 def read_depth(path):
     """IRMA's per-position depth, indexed by CONTIG coordinate (1-based)."""
     depth = []
@@ -253,6 +313,7 @@ def main():
                     help="depth floor, applied to IRMA's own coverage [100]")
     ap.add_argument('--out', default='irma_position_map.tsv')
     ap.add_argument('--out-aa', default='irma_consensus_aa.tsv')
+    ap.add_argument('--out-var', default='irma_variants.tsv')
     args = ap.parse_args()
 
     if not os.path.isdir(args.contigs):
@@ -284,8 +345,9 @@ def main():
         sys.stderr.write('irma_position_map: biopython not available; nothing written\n')
         return 0
 
-    map_rows, aa_rows = [], []
+    map_rows, aa_rows, var_rows = [], [], []
     tally = Counter()
+    vtally = Counter()
 
     contig_files = sorted(f for f in os.listdir(args.contigs) if f.endswith('.fasta'))
     for fn in contig_files:
@@ -309,6 +371,45 @@ def main():
             if args.irma:
                 depths[locus] = read_depth(os.path.join(
                     args.irma, sample, 'tables', '%s-coverage.txt' % locus))
+
+        # IRMA's minority calls, placed on the reference and stated against the
+        # reference base. Needs the SAME alignment the consensus used, which is
+        # why it lives here rather than in a script of its own -- recomputing
+        # 1,123 alignments to read a second table would be waste, and two
+        # independent placements of one contig is exactly the kind of second
+        # derivation this file exists to remove.
+        if args.irma:
+            for locus, (fpos, _fstat) in sorted(frames.items()):
+                if fpos is None:
+                    continue
+                # contig index -> reference index. The forward map is built
+                # reference-first because that is what the consensus walk needs;
+                # a variant arrives in contig coordinates and has to go back.
+                back = {v: k for k, v in fpos.items()}
+                ref_seq = seqs[locus]
+                for (p, cons, cfreq, minor, mfreq, mcount, total) in read_variants(
+                        os.path.join(args.irma, sample, 'tables',
+                                     '%s-variants.txt' % locus)):
+                    vtally['rows'] += 1
+                    r0 = back.get(p - 1)
+                    if r0 is None:
+                        # Inside a contig region the alignment would not place.
+                        # Dropped rather than guessed, same rule as everywhere here.
+                        vtally['unplaced'] += 1
+                        continue
+                    ref_base = ref_seq[r0].upper()
+                    if cons != ref_base:
+                        vtally['consensus_differs_from_reference'] += 1
+                    if minor == ref_base:
+                        # IRMA is reporting the REFERENCE base as the minority
+                        # allele: a partial reversion, which reads backwards if
+                        # you assume the minority allele is the non-reference one.
+                        vtally['minority_is_reference'] += 1
+                    var_rows.append((sample, locus, r0 + 1, ref_base,
+                                     cons, '%.6g' % cfreq,
+                                     minor, '%.6g' % mfreq, mcount, total,
+                                     'yes' if cons == ref_base else 'no',
+                                     'yes' if minor == ref_base else 'no'))
 
         for product, rec in sorted(products.items()):
             if rec is None:
@@ -378,15 +479,27 @@ def main():
                              counts['thin']))
             tally[status] += 1
 
+    # min_depth rides on every row of the frame table. It is constant per run, so
+    # a column is redundant -- but a reader that knows a residue is `thin` and
+    # cannot say thin against WHAT has to carry the number out of band, and the
+    # viewer had to write "below the run's depth floor" for exactly that reason.
+    # State the parameter beside the output, same principle as the map itself.
     with open(args.out, 'w') as fh:
         fh.write('sample\tproduct\tlocus\tstatus\tref_aa_len\tplaced\tchanged\t'
-                 'ambiguous\tuncovered\tthin\n')
+                 'ambiguous\tuncovered\tthin\tmin_depth\n')
         for r in map_rows:
-            fh.write('\t'.join(str(x) for x in r) + '\n')
+            fh.write('\t'.join(str(x) for x in r) + '\t%d\n' % args.min_depth)
 
     with open(args.out_aa, 'w') as fh:
         fh.write('sample\tproduct\tref_pos\tref_aa\tirma_aa\tstatus\tirma_depth\n')
         for r in aa_rows:
+            fh.write('\t'.join(str(x) for x in r) + '\n')
+
+    with open(args.out_var, 'w') as fh:
+        fh.write('sample\tlocus\tref_pos\tref_base\tcons_allele\tcons_freq\t'
+                 'minor_allele\tminor_freq\tminor_count\ttotal\t'
+                 'cons_is_ref\tminor_is_ref\n')
+        for r in var_rows:
             fh.write('\t'.join(str(x) for x in r) + '\n')
 
     st = Counter(r[5] for r in aa_rows)
@@ -407,6 +520,14 @@ def main():
             '%d change, %d change_thin, %d thin, %d ambiguous, %d uncovered\n'
             % (args.min_depth, st['change'], st['change_thin'], st['thin'],
                st['ambiguous'], st['uncovered']))
+    if args.irma:
+        sys.stderr.write(
+            'irma_position_map: %d IRMA minority calls placed (%d unplaced) -- '
+            '%d where IRMA\'s consensus differs from the reference, '
+            '%d where the MINORITY allele IS the reference\n'
+            % (len(var_rows), vtally['unplaced'],
+               vtally['consensus_differs_from_reference'],
+               vtally['minority_is_reference']))
     return 0
 
 
