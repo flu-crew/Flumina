@@ -226,6 +226,9 @@ aa.sample = list.files(paste0(output.directory, "/aa_db"))
 
 #combines all the individual samples together
 all.samples = c()
+# Samples whose calls survive but which have no row in the metadata CSV. Kept
+# and reported rather than dropped — see the merge below.
+samples.without.metadata = c()
 for (i in seq_along(aa.sample)){
   
   # na.strings = "" again — see the note above; "NA" is a gene name here
@@ -234,13 +237,45 @@ for (i in seq_along(aa.sample)){
   
   #Combines metadata if included
   if (is.null(metadata.file) != TRUE){
-    sample.data = merge(sample.data, meta.sample, by.x = "sample", by.y = "Sample")
+    # LEFT join (all.x = TRUE), not merge()'s default INNER one.
+    #
+    # (Details of an unpublished run were removed here.)
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    # A missing metadata ROW is a fact about the spreadsheet, not about the
+    # sequencing, and it must not decide whether a sample's variants exist.
+    # Keep the calls, leave the metadata columns NA, and say so afterwards —
+    # NA metadata is visible, a missing sample is not.
+    if (nrow(sample.data) > 0 && !(sample.data$sample[1] %in% meta.sample$Sample)){
+      samples.without.metadata = c(samples.without.metadata, sample.data$sample[1])
+    }
+    sample.data = merge(sample.data, meta.sample, by.x = "sample", by.y = "Sample",
+                        all.x = TRUE)
   }#end if
   
   sample.data$locus = gsub("^A_", "", sample.data$locus)
   sample.data$locus = gsub("_[A-Z][0-9]+$", "", sample.data$locus)
   all.samples = rbind(all.samples, sample.data)
 }#end i loop
+
+# Said once, loudly. These samples keep every call and carry NA metadata, which
+# means any downstream grouping by a metadata column will exclude them — that is
+# a defensible outcome, but only if it is a known one.
+if (length(samples.without.metadata) > 0){
+  cat(sprintf("METADATA: %d sample(s) have no row in %s and were kept with NA metadata: %s\n",
+              length(samples.without.metadata), basename(metadata.file),
+              paste(samples.without.metadata, collapse = ", ")))
+  warning(sprintf("%d sample(s) absent from the metadata CSV: %s. Their calls are KEPT ",
+                  length(samples.without.metadata),
+                  paste(samples.without.metadata, collapse = ", ")),
+          "with NA metadata; add them to the CSV if they should be grouped.")
+}
 
 #############################################
 #### Depth-artifact guards (depth/quality floor + optional swab dedup)
