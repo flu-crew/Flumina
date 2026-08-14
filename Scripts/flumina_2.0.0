@@ -128,8 +128,9 @@ function print_help_menu() {
              -w /scratch/\$USER/flumina
         -s : Skip a portion of Flumina. Options: '0' = skip nothing,
              'i' = skip IRMA assembly, 'm' = skip FluMut marker screening,
-             'v' = skip iVar variant calling (LoFreq and GATK4 always run).
-             These options may be combined. Default is 0
+             'v' = skip iVar, 'l' = skip LoFreq, 'g' = skip GATK4 variant
+             calling. At least one caller must remain. These options may be
+             combined. Default is 0
         -C : Delete the work directory when the run finishes successfully.
              The work directory holds every intermediate and is roughly the
              size of the results again, so this is worth setting once a run is
@@ -301,8 +302,11 @@ function load_config_file() {
             MIN_ALLELE_FREQUENCY)  CFG_MIN_FREQ="$value" ;;
             DEDUP_KEYS)            CFG_DEDUP_KEYS="$value" ;;
             THREADS)               CFG_THREADS="$value" ;;
-            DISABLE_IRMA)          CFG_DISABLE_IRMA="$value" ;;
+            IRMA)                  CFG_IRMA="$value" ;;
+            DISABLE_IRMA)          CFG_DISABLE_IRMA="$value" ;;   # legacy, inverted
             IRMA_CONFIG)           CFG_IRMA_CONFIG="$value" ;;
+            LOFREQ)                CFG_LOFREQ="$value" ;;
+            GATK4)                 CFG_GATK4="$value" ;;
             FLUMUT)                CFG_FLUMUT="$value" ;;
             IVAR)                  CFG_IVAR="$value" ;;
             FLUMUT_LOWFREQ)        CFG_FLUMUT_LOWFREQ="$value" ;;
@@ -381,6 +385,9 @@ CLEANUP=""
 PUBLISH_MODE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
+# LoFreq and GATK4 variant callers, on by default. -s l / -s g turn them off.
+RUN_LOFREQ="true"
+RUN_GATK4="true"
 #Third caller, on by default like LoFreq and GATK4. -s v turns it off.
 RUN_IVAR="true"
 FLUMUT_LOWFREQ="false"
@@ -451,8 +458,8 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
       s )
         #Reject unknown letters rather than skipping nothing silently, which
         #would leave the user believing a step had been turned off.
-        if [[ $OPTARG =~ [^0imv] ]]; then
-            echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', 'm', and 'v'" 1>&2
+        if [[ $OPTARG =~ [^0imvlg] ]]; then
+            echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', 'm', 'v', 'l', and 'g'" 1>&2
             print_help_menu
         fi
         if [[ $OPTARG != *"0"* ]]; then
@@ -464,6 +471,12 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
             fi
             if [[ $OPTARG == *"v"* ]]; then
                 CLI_SKIP_IVAR=1
+            fi
+            if [[ $OPTARG == *"l"* ]]; then
+                CLI_SKIP_LOFREQ=1
+            fi
+            if [[ $OPTARG == *"g"* ]]; then
+                CLI_SKIP_GATK4=1
             fi
         fi
         ;;
@@ -571,9 +584,16 @@ if [ -n "$CONFIG_FILE" ]; then
             *)     abort "DISABLE_IRMA must be TRUE or FALSE, but got '${CFG_DISABLE_IRMA}'" ;;
         esac
     fi
+    #IRMA is the current positive spelling; it wins over legacy DISABLE_IRMA.
+    if [ -n "$CFG_IRMA" ]; then
+        converted=$(to_bool "$CFG_IRMA")
+        [ -z "$converted" ] && abort "IRMA must be TRUE or FALSE, but got '${CFG_IRMA}'"
+        RUN_IRMA="$converted"
+    fi
 
     for pair in "CFG_FLUMUT:RUN_FLUMUT" "CFG_FLUMUT_LOWFREQ:FLUMUT_LOWFREQ" \
                 "CFG_IVAR:RUN_IVAR" \
+                "CFG_LOFREQ:RUN_LOFREQ" "CFG_GATK4:RUN_GATK4" \
                 "CFG_FLUMUT_SUBREF:FLUMUT_SUBREF" \
                 "CFG_FLUMUT_KEEP_HANA:FLUMUT_KEEP_HANA" \
                 "CFG_SNPGENIE:SNPGENIE" "CFG_WFABC:WFABC" \
@@ -635,6 +655,8 @@ fi
 [ "${CLI_SKIP_IRMA:-0}" = "1" ]   && RUN_IRMA="false"
 [ "${CLI_SKIP_FLUMUT:-0}" = "1" ] && RUN_FLUMUT="false"
 [ "${CLI_SKIP_IVAR:-0}" = "1" ]   && RUN_IVAR="false"
+[ "${CLI_SKIP_LOFREQ:-0}" = "1" ] && RUN_LOFREQ="false"
+[ "${CLI_SKIP_GATK4:-0}" = "1" ]  && RUN_GATK4="false"
 [ "${CLI_CLEANUP:-0}" = "1" ]     && CLEANUP="true"
 [ "${CLI_SNPGENIE:-0}" = "1" ]    && SNPGENIE="true"
 [ "${CLI_WFABC:-0}" = "1" ]       && WFABC="true"
@@ -645,17 +667,25 @@ if [ -n "$CLI_FLUMUT_FREQ" ]; then
     FLUMUT_LOWFREQ="true"
 fi
 
-#Skipping FluMut entirely also skips the low-frequency screen
-[ "$RUN_FLUMUT" = "false" ] && FLUMUT_LOWFREQ="false"
-
-#FluMut screens the IRMA consensus, so without IRMA there is nothing to screen.
-#The workflow already skips it in that case; turning it off here as well keeps
-#the run summary below honest rather than promising a step that will not happen.
-if [ "$RUN_IRMA" = "false" ] && [ "$RUN_FLUMUT" = "true" ]; then
-    echo -e "\nWARNING: FluMut screening needs the IRMA consensus, but IRMA is disabled."
-    echo -e "         Marker screening will be skipped.\n"
-    RUN_FLUMUT="false"
-    FLUMUT_LOWFREQ="false"
+#Program dependencies. A program turned on must not depend on one turned off,
+#and at least one variant caller must run. These fail fast, before Nextflow
+#starts; main.nf enforces the same rules as a backstop. The config.cfg "Programs
+#to run" section documents them. We ERROR rather than silently disable a step, so
+#a run never quietly drops output the user asked for.
+if [ "$RUN_LOFREQ" = "false" ] && [ "$RUN_GATK4" = "false" ] && [ "$RUN_IVAR" = "false" ]; then
+    abort "No variant caller is enabled. Set at least one of LOFREQ, GATK4, or IVAR to TRUE."
+fi
+if [ "$RUN_FLUMUT" = "true" ] && [ "$RUN_IRMA" = "false" ]; then
+    abort "FLUMUT=TRUE needs IRMA=TRUE: FluMut screens the IRMA consensus, so without IRMA there is nothing to screen."
+fi
+if [ "$FLUMUT_LOWFREQ" = "true" ] && { [ "$RUN_IRMA" = "false" ] || [ "$RUN_LOFREQ" = "false" ]; }; then
+    abort "FLUMUT_LOWFREQ=TRUE needs IRMA=TRUE and LOFREQ=TRUE: it applies LoFreq variants to the IRMA consensus before it screens."
+fi
+if [ "$SNPGENIE" = "true" ] && [ "$RUN_LOFREQ" = "false" ]; then
+    abort "SNPGENIE=TRUE needs LOFREQ=TRUE: SNPGenie runs on the pooled LoFreq calls."
+fi
+if [ "$WFABC" = "true" ] && [ "$RUN_LOFREQ" = "false" ] && [ "$RUN_IVAR" = "false" ]; then
+    abort "WFABC=TRUE needs LOFREQ=TRUE or IVAR=TRUE: selection needs allele fractions, and GATK4 reports genotypes."
 fi
 
 #An IRMA config in the working directory is picked up automatically
@@ -771,6 +801,8 @@ NF_ARGS=(
     --min_allele_frequency "$MIN_FREQ"
     --max_cpus "$NTHREADS"
     --run_irma "$RUN_IRMA"
+    --run_lofreq "$RUN_LOFREQ"
+    --run_gatk4 "$RUN_GATK4"
     --ivar "$RUN_IVAR"
     --flumut "$RUN_FLUMUT"
     --flumut_lowfreq "$FLUMUT_LOWFREQ"
@@ -864,6 +896,8 @@ cat <<startBanner
     Minimum quality     : ${MIN_QUALITY}
     Minimum frequency   : ${MIN_FREQ}
     IRMA assembly       : ${RUN_IRMA}
+    LoFreq calling      : ${RUN_LOFREQ}
+    GATK4 calling       : ${RUN_GATK4}
     iVar calling        : ${RUN_IVAR}
     FluMut screening    : ${RUN_FLUMUT}
     FluMut low-freq     : ${FLUMUT_LOWFREQ}$([ "$FLUMUT_LOWFREQ" = "true" ] && echo " (>= ${FLUMUT_FREQ})")
