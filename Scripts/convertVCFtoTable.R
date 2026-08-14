@@ -211,6 +211,11 @@ ivar.files = all.ivar.files[grep(paste0(ivar.string, "$"), all.ivar.files)]
 
 ivar.rows   = list()
 n.ivar.indel = 0
+# Indel positions for the dist_to_indel column, and the samples an iVar file was
+# actually found for. The second is what separates "no indel near this call"
+# from "no way to tell" — see the indel-proximity block after the callers merge.
+indel.pos = list()
+ivar.samples.seen = character(0)
 
 for (i in seq_along(ivar.files)) {
 
@@ -233,6 +238,26 @@ for (i in seq_along(ivar.files)) {
   # in one file, so this is where it happens for iVar.
   is.indel = grepl("^[+-]", ivar.tab$ALT)
   n.ivar.indel = n.ivar.indel + sum(is.indel)
+
+  # Their POSITIONS are kept even though the rows are dropped: `lofreq call`
+  # runs with -B, and the calls that buys are enriched for sitting next to
+  # indels, so every call carries its distance to the nearest one.
+  #
+  # iVar is the ONLY usable source — GATK4 is a genotype caller and misses
+  # indels below genotype frequency, so its indel VCF is near-empty and would
+  # report that nothing anywhere is indel-adjacent. Numbers in HANDOFF.md.
+  #
+  # Recorded before ivar.tab is subset and before the `next` below, because a
+  # sample whose iVar output is ALL indels still has indels.
+  ivar.samples.seen = c(ivar.samples.seen, ivar.sample)
+  if (any(is.indel)) {
+    indel.pos[[length(indel.pos) + 1]] = data.frame(
+      sample   = ivar.sample,
+      locus    = as.character(ivar.tab$REGION[is.indel]),
+      position = as.numeric(ivar.tab$POS[is.indel]),
+      stringsAsFactors = FALSE)
+  }
+
   ivar.tab = ivar.tab[!is.indel, , drop = FALSE]
 
   if (nrow(ivar.tab) == 0) { next }
@@ -597,6 +622,55 @@ if (nrow(final.data) < n.before)
               n.before - nrow(final.data)))
 tab = table(final.data$product)
 cat("  rows per product:", paste(names(tab), tab, sep = "=", collapse = "  "), "\n")
+
+#############################################
+#### Indel proximity
+#############################################
+# `lofreq call` runs with -B (BAQ off), which recovers real calls but also
+# admits ones next to indels — what BAQ was suppressing. The cost is carried as
+# a column rather than paid in lost calls, the same way gatk_filter and
+# ivar_pass annotate rather than remove.
+#
+# TWO columns, because one cannot say both things:
+#   dist_to_indel  bases to the nearest iVar indel in the same sample+locus,
+#                  NA when that segment has none
+#   indel_source   whether an iVar file existed for that sample at all
+#
+# Without the second, NA is ambiguous between "measured, nothing near it" and
+# "iVar never ran, so nobody looked" — opposite conclusions. Same argument as
+# min_depth riding on every row of the IRMA frame table.
+#
+# Computed AFTER the amino-acid annotation: distance is a property of the
+# nucleotide position, so it survives that step's one-row-per-ORF expansion,
+# and this way it does not rely on flu_annotate_positions carrying columns it
+# knows nothing about.
+indel.table = if (length(indel.pos) > 0) do.call(rbind, indel.pos) else NULL
+
+dist.vec = rep(NA_real_, nrow(final.data))
+if (!is.null(indel.table) && nrow(indel.table) > 0) {
+  # "\r" as the key separator: sample and locus names cannot contain it, so no
+  # pair of real names can collide into one key.
+  indel.key = paste(indel.table$sample, indel.table$locus, sep = "\r")
+  by.key    = split(indel.table$position, indel.key)
+  row.key   = paste(final.data$sample, final.data$locus, sep = "\r")
+  hit       = which(row.key %in% names(by.key))
+  if (length(hit) > 0) {
+    dist.vec[hit] = vapply(hit, function(j)
+      min(abs(final.data$position[j] - by.key[[row.key[j]]])), numeric(1))
+  }
+}
+
+final.data$dist_to_indel = dist.vec
+final.data$indel_source  = final.data$sample %in% ivar.samples.seen
+
+n.src   = sum(final.data$indel_source)
+n.near  = sum(!is.na(dist.vec) & dist.vec <= 10)
+cat(sprintf("Indel proximity: %d indel position(s) from %d sample(s) with an iVar source; %d of %d rows within 10 bp of one\n",
+            if (is.null(indel.table)) 0L else nrow(indel.table),
+            length(unique(ivar.samples.seen)), n.near, nrow(final.data)))
+if (n.src < nrow(final.data))
+  cat(sprintf("  %d row(s) have NO indel source (iVar did not run for that sample): dist_to_indel is NA and means UNKNOWN, not far\n",
+              nrow(final.data) - n.src))
 
 #Saves the data
 write.csv(final.data, paste0(output.directory, "/", save.name, ".csv"),

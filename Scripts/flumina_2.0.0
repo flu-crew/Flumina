@@ -85,11 +85,10 @@ function print_help_menu() {
              WARNING: below 100 LoFreq and GATK report false fixations from low
              template input (the founder/jackpot effect), so raise this rather
              than lower it unless you know why you are doing so.
-             This is compared against the depth the callers can SEE — bases
-             surviving overlapping-mate removal and the -q floor — which runs
-             70-75% of the raw aligned count, so 100 here behaves like a raw
-             floor of about 135-145. depth_profiles/<sample>.depth publishes
-             both numbers: column 3 raw, column 4 the one -d is tested against.
+             Compared against the depth the callers can SEE, not the raw
+             aligned count, so this behaves like a higher raw floor.
+             depth_profiles/<sample>.depth publishes both: column 3 raw,
+             column 4 the one -d is tested against.
         -q : Minimum quality to keep a variant, 0 disables. Default is 30
         -f : Minimum allele frequency to keep a variant (0-1).
              Default is 0.01 (1%)

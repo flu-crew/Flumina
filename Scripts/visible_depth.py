@@ -1,50 +1,32 @@
 #!/usr/bin/env python3
 """Join the depth that gets reported to the depth the callers actually see.
 
-Two different numbers have been called "depth" in this pipeline, and MIN_DEPTH
-was stated against the one nothing downstream can see:
+Two different numbers get called "depth" here:
 
-  raw            `samtools depth -a -Q 0` -- every aligned base, no quality
-                 filter, no overlap handling. This is what depth_profiles/ has
-                 always published and what every existing consumer reads.
-
+  raw            `samtools depth -a -Q 0` -- every aligned base. What
+                 depth_profiles/ publishes and every existing consumer reads.
   caller-visible `samtools mpileup` with overlapping mate bases zeroed, then
-                 -q applied. This is what iVar's -m floor is tested against,
-                 and it is 70-75% of the raw count on a typical library here.
+                 -q applied. What iVar's -m floor is actually tested against,
+                 and well below the raw count.
 
-MIN_DEPTH=100 reaches iVar as `-m 100` and is tested against the SECOND number,
-so the effective raw floor is nearer 135-145. On the 2026-08-09 run, 111,873
-positions across 130 of 143 samples had raw depth >= 100 and caller-visible
-depth below it: reported as adequately covered, evaluated by no caller at all.
-Two real calls were lost that way (PB2 T16N, M1 S30G).
+MIN_DEPTH was stated against the second while only the first was published, so
+positions could clear the floor on paper and be evaluated by no caller. This
+script reads the mpileup on stdin -- the SAME command IVAR is given, so the
+count is the caller's quantity rather than a conversion -- and appends it to
+the raw file as a fourth column.
 
-The fix is not to change the floor -- overlap removal is correct, and counting
-a fragment's two mates as independent observations is the error it exists to
-prevent. The fix is to publish the second number beside the first, so the floor
-is stated against a quantity that appears in the output.
+Columns 1-3 pass through byte-for-byte. mpileup's own column 4 is NOT used for
+them: it counts deletion placeholders where `samtools depth` does not, and
+swapping one for the other would move an already-published number.
 
-This script does the joining. It reads the mpileup on stdin -- the SAME mpileup
-command IVAR is given, so the count is the caller's quantity by construction
-rather than by a conversion factor -- and writes the raw file back out with the
-visible count appended as a fourth column.
+`-x` will not give you the raw count either -- overlap removal zeroes the
+mate's base QUALITY without removing it from the depth column, so the two
+diverge only once -q is applied.
 
-The raw columns are passed through byte-for-byte from the raw file. mpileup's
-own column 4 is NOT used for them: it counts deletion placeholders where
-`samtools depth` does not, so the two disagree at roughly 0.5% of positions
-(12 of 2280 on MC-559 A_PB2, all by 1-2 reads, all beside deletions). Small,
-but swapping one for the other would silently move a number that has already
-been published.
+FluLens tools/reads/depth_band.py carries a copy of this counter. Keep them in
+step; if they drift, that measurement stops describing this pipeline.
 
-Note that `-x` is irrelevant to the raw count and must not be used to obtain
-it: overlap removal zeroes the mate's base QUALITY without removing the base
-from the depth column, so `mpileup -x` and `mpileup` give identical column 4
-(verified, 0 disagreements over a full segment). The overlap effect is visible
-only after a quality threshold is applied, which is exactly why the two numbers
-diverge only once -q enters.
-
-FluLens carries a copy of this counter at tools/reads/depth_band.py, which
-measured the band in the first place. Keep the two in step -- they are the same
-definition, and if they drift the measurement stops describing the pipeline.
+Full measurement and reasoning in the Flumina HANDOFF.md.
 
 usage:
   samtools mpileup -aa -A -B -d 0 -Q 0 --reference ref.fa in.bam \
@@ -102,10 +84,9 @@ def main():
     ap.add_argument('--out', required=True, help='output path, or - for stdout')
     args = ap.parse_args()
 
-    # mpileup is read into memory rather than streamed alongside the raw file:
-    # both are emitted in BAM-header order and -aa/-a make them the same length,
-    # but pairing them line by line would turn any future divergence into a
-    # silent off-by-one instead of an error. One flu genome is ~13k positions.
+    # Read into memory rather than streamed alongside the raw file: pairing the
+    # two line by line would turn any future divergence into a silent
+    # off-by-one instead of an error. One flu genome is ~13k positions.
     seen = {}
     for line in sys.stdin:
         f = line.rstrip('\n').split('\t')
@@ -127,10 +108,8 @@ def main():
                     continue
                 vis = seen.get((f[0], f[1]))
                 if vis is None:
-                    # Not recoverable by guessing: a position the raw pass saw
-                    # and the pileup did not means the two are describing
-                    # different data, and a fabricated 0 would read as "no
-                    # usable coverage here" rather than as the bug it is.
+                    # Never fabricate a 0 here: it would read as "no usable
+                    # coverage" rather than as the bug it is.
                     missing += 1
                     if missing <= 5:
                         print(f'visible_depth: no pileup row for {f[0]}:{f[1]}',

@@ -165,11 +165,8 @@ def helpMessage() {
       --outdir           Output directory              [${params.outdir}]
       --max_cpus         Max CPUs used at once         [${params.max_cpus}]
       --min_depth        Minimum depth to keep a call  [${params.min_depth}]
-                         Compared against the depth the callers can SEE
-                         (overlapping mates zeroed, --min_quality applied),
-                         which is 70-75% of the raw count — so this is an
-                         effective raw floor nearer 135-145. depth_profiles/
-                         publishes both: column 3 raw, column 4 this one.
+                         Tested against the depth the callers see, not the raw
+                         count; depth_profiles/ publishes both (col 3, col 4)
       --min_quality      Minimum quality to keep       [${params.min_quality}]
       --min_allele_frequency  Minimum allele frequency [${params.min_allele_frequency}]
       --group_names      Metadata column to group by   [${params.group_names}]
@@ -640,6 +637,15 @@ process FILTER_VARIANTS {
     """
 }
 
+/*
+ * LoFreq.
+ *
+ * -B disables BAQ, matching the iVar path. Measured on 12 samples before it was
+ * enabled: it adds ~16% more calls and loses none, and the added calls look
+ * like the existing ones except for being enriched next to indels — which is
+ * what BAQ was suppressing. That cost is carried as `dist_to_indel` in the
+ * variant table rather than paid in lost calls. Numbers in HANDOFF.md.
+ */
 process LOFREQ {
     tag "$sample"; label 'process_medium'
     publishDir { "${params.outdir}/vcf_files/${sample}" }, mode: params.publish_mode
@@ -653,7 +659,7 @@ process LOFREQ {
 
     script:
     """
-    lofreq call -f ${ref} -o lofreq-called-variants.vcf ${bam}
+    lofreq call -B -f ${ref} -o lofreq-called-variants.vcf ${bam}
     """
 }
 
@@ -776,39 +782,21 @@ process GATHER_SAMPLE_VCFS {
  * The whole reference is 13,133 bp, so this is ~13k lines per sample and costs
  * nothing to keep.
  *
- * FOUR columns since 2026-08-13 (late), not three: contig, position, raw
- * depth, and the depth the variant callers can actually see. The first three
- * are exactly what this process always wrote and are byte-identical to earlier
- * runs; the fourth is new.
- *
- * It exists because MIN_DEPTH was being stated against a quantity that never
- * appeared in any output. `samtools depth` counts every aligned base; iVar's
- * `-m` floor is tested against a pileup that has had overlapping mate bases
- * zeroed and `-q` applied, which is 70-75% of that. So MIN_DEPTH=100 is really
- * a raw floor of about 135-145, and on the 2026-08-09 run 111,873 positions
- * across 130 of 143 samples sat in the gap — published as adequately covered,
- * evaluated by no caller. Two real calls were lost there.
- *
- * The floor itself does not move. Overlap removal is correct and `-x` is the
- * wrong fix; what was wrong is that the number nothing could see was the one
- * being compared against. Column 4 makes it visible, and the mpileup that
- * produces it is the SAME command IVAR is handed — same flags, same reference,
- * same -q — so it is the caller's quantity by construction rather than by a
- * conversion factor that would be wrong on the next library. Where iVar emits
- * a row, column 4 equals its TOTAL_DP exactly.
- *
- * Existing readers are unaffected: the file stays headerless and tab-separated
- * with the same first three columns, and both consumers (FluLens's depth panel,
- * apply_lofreq_to_consensus.R) index by column rather than by field count.
+ * FOUR columns, not three: contig, position, raw depth, and the depth the
+ * variant callers can actually see. MIN_DEPTH is tested against the second one
+ * — iVar gets it as -m against a pileup with overlapping mates zeroed and -q
+ * applied — so publishing the raw count alone stated the floor against a number
+ * no output carried. Column 4 comes from the same mpileup IVAR runs, making it
+ * the caller's own quantity rather than a conversion factor. Columns 1-3 are
+ * unchanged and byte-identical to earlier runs. Measurement in HANDOFF.md.
  */
 process DEPTH_PROFILE {
     tag "$sample"
     label 'process_low'
-    // Published, because both consumers that matter are outside this pipeline.
-    // FluLens is the only component that maps FluMut's own numbering back to
-    // reference positions, so a per-marker "was there any coverage here" check
-    // can only be made there; and the MIN_DEPTH gap can only be read by someone
-    // holding the file, since nothing in the run reports it.
+    // Published, because both consumers that matter are outside this pipeline:
+    // FluLens is the only component that maps FluMut's numbering back to
+    // reference positions, and the MIN_DEPTH gap can only be read from the file
+    // itself, since nothing in the run reports it.
     publishDir "${params.outdir}/depth_profiles", mode: params.publish_mode
 
     input:
@@ -820,14 +808,11 @@ process DEPTH_PROFILE {
 
     script:
     """
-    # Intermediate is named off the sample rather than a bare 'raw.depth': a
-    # sample literally called "raw" would otherwise have the scratch file and
-    # the published output collide on one name.
+    # Named off the sample so a sample called "raw" cannot collide with it.
     samtools depth -a -Q 0 ${bam} > '${sample}.raw-depth.tmp'
 
-    # Byte-for-byte the mpileup IVAR runs. Any drift between the two makes
-    # column 4 a different quantity from the one -m is tested against, which is
-    # the whole failure this column exists to close — so they change together.
+    # Must stay byte-for-byte the mpileup IVAR runs — if the two drift, column 4
+    # stops being the quantity -m is tested against. Change them together.
     samtools mpileup -aa -A -B -d 0 -Q 0 --reference ${ref} ${bam} \\
       | python3 ${scripts}/visible_depth.py \\
           --raw '${sample}.raw-depth.tmp' \\
@@ -1178,16 +1163,11 @@ process FLUMUT_LOWFREQ {
     # onto the REFERENCE, not the consensus, because LoFreq's coordinates are
     # the reference's and IRMA's consensus is built de novo. See the script header.
     # depth/ carries one <sample>.depth per sample from DEPTH_PROFILE. Positions
-    # with zero coverage are COUNTED AND REPORTED, never written as N: masking
-    # was built, measured and rejected because it MANUFACTURED markers by
-    # perturbing FluMut's own alignment — the script header has the numbers, and
-    # says plainly not to re-implement it. (This comment claimed the opposite
-    # until 2026-08-13; the code has been correct throughout.) The directory is
-    # passed rather than the files so an absent depth source degrades to the old
-    # behaviour instead of failing.
-    # --min-depth so the exposure it reports is measured against the run's own
-    # floor rather than a hardcoded 100, and against column 4 of the depth files
-    # rather than column 3 — see the DEPTH_PROFILE header for why those differ.
+    # with zero coverage are COUNTED AND REPORTED, never written as N — masking
+    # was measured and rejected because it manufactured markers; see the script
+    # header. The directory is passed rather than the files so an absent depth
+    # source degrades instead of failing. --min-depth so the exposure is
+    # reported against the run's own floor rather than a hardcoded 100.
     Rscript ${scripts}/apply_lofreq_to_consensus.R mutated.fasta ${params.flumut_freq_threshold} \\
         ${reference} depth --min-depth=${asNum(params.min_depth)} \$r_args
 
@@ -1513,22 +1493,12 @@ workflow {
     filtered = FILTER_VARIANTS(selected.snps.join(selected.indels), ref).vcf
     lofreq   = LOFREQ(final_bam, ref).vcf
 
-    // Per-position depth, raw and caller-visible, for every sample of every run.
-    //
-    // Unconditional since 2026-08-13 (late). It used to run only when the
-    // low-frequency FluMut screen was enabled, on the argument that the screen
-    // was its only consumer. That argument died when the file gained the
-    // caller-visible column: the depth files are now the only place a reader can
-    // see which positions cleared MIN_DEPTH on paper and were evaluated by no
-    // caller in fact, and gating that on an unrelated optional screen meant the
-    // runs least likely to enable it were the runs with no way to check. It
-    // costs ~0.24 s per sample on a 13,133 bp reference, which is not a reason
-    // to withhold the one output that makes the depth floor auditable.
-    //
-    // Placed with the callers rather than beside the screen because that is what
-    // it now describes — LOFREQ and IVAR above are held to the same floor this
-    // measures. ref and Scripts are for column 4: the reference so the mpileup
-    // is identical to IVAR's, Scripts for the counter. See the process header.
+    // Per-position depth for every sample. Unconditional: it was once gated on
+    // the low-frequency screen being its only consumer, which stopped being true
+    // when the file gained the caller-visible column — that makes the depth
+    // floor auditable, and gating it hid the gap on the runs least likely to
+    // enable the screen. Costs ~0.24 s per sample. Sits with the callers because
+    // that is what it describes; ref and Scripts are for column 4.
     depth_files = DEPTH_PROFILE(final_bam, ref,
                                 file("${projectDir}/Scripts")).depth.collect()
 

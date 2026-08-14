@@ -67,12 +67,10 @@
 ####   Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold> \
 ####       <reference.fa> <depth_dir|NULL> [--min-depth=N] <irma_fasta> <lofreq_vcf> [...]
 ####
-#### --min-depth is the run's MIN_DEPTH (default 100). It is reported against,
-#### never masked at. When the depth files carry the caller-visible column it is
-#### compared to THAT, which is the quantity MIN_DEPTH is actually tested
-#### against everywhere else; three-column files fall back to raw depth and the
-#### summary says so, because the two differ by 25-30% and reporting the wrong
-#### one understates the exposure.
+#### --min-depth is the run's MIN_DEPTH (default 100). Reported against, never
+#### masked at. Compared to the caller-visible column when the depth files carry
+#### one, since that is what MIN_DEPTH is tested against everywhere else;
+#### three-column files fall back to raw depth and the summary says so.
 ####
 #### Output headers are already >sample_SEGMENT, ready for FluMut. Do NOT pass
 #### this through rename_for_flumut.R: that takes the sample name from the
@@ -80,12 +78,11 @@
 
 args = commandArgs(trailingOnly = TRUE)
 
-# --min-depth=N is pulled out before anything positional is read. It arrives as
-# a flag rather than as a fifth positional argument because everything past
-# argument 4 is a variadic FASTA/VCF list: a new positional would be silently
-# swallowed as an IRMA FASTA by any caller that had not been updated in step.
-# Before 2026-08-13 (late) this was hardcoded to 100 and ignored the run's
-# MIN_DEPTH entirely, so the reported exposure was wrong for any run that set -d.
+# --min-depth=N is pulled out before anything positional is read. A flag rather
+# than a fifth positional because everything past argument 4 is a variadic
+# FASTA/VCF list, so a new positional would be silently swallowed as an IRMA
+# FASTA by any caller not updated in step. This was previously hardcoded to 100
+# and ignored the run's MIN_DEPTH.
 min_depth_flag = grep("^--min-depth=", args, value = TRUE)
 MIN_DEPTH_NOTE = if (length(min_depth_flag))
   suppressWarnings(as.numeric(sub("^--min-depth=", "",
@@ -140,18 +137,15 @@ if (!use_depth)
 # Returns list(raw = segment -> depths, vis = segment -> depths or NULL), or NULL.
 #
 # Two depths, because DEPTH_PROFILE publishes two: column 3 is every aligned
-# base and column 4 is what the variant callers can actually see once
-# overlapping mates are zeroed and the quality floor applied. Runs before
-# 2026-08-13 (late) have three columns and no `vis`.
+# base, column 4 what the callers can actually see. Older runs are three-column
+# and have no `vis`.
 read_depth = function(sample_name) {
   if (!use_depth) return(NULL)
   p = file.path(depth_dir, paste0(sample_name, ".depth"))
   if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
-  # The column count is read from the file rather than assumed, because
-  # colClasses is RECYCLED when it is shorter than the row: a hardcoded
-  # three-element vector against a four-column file types column 4 as character
-  # and happens to keep working, which is luck rather than intent. Anything
-  # past column 4 is dropped explicitly for the same reason.
+  # Column count read from the file, not assumed: colClasses is RECYCLED when
+  # shorter than the row, so a hardcoded three-element vector against a
+  # four-column file works by luck rather than intent.
   first = readLines(p, n = 1, warn = FALSE)
   if (!length(first) || !nzchar(first)) return(NULL)
   ncol_d = length(strsplit(first, "\t")[[1]])
@@ -276,11 +270,9 @@ for (i in seq(1, length(pairs), by = 2)) {
       if (n > 0) {
         # Two questions, two depths. "Was there any read here at all" is a raw
         # question and stays on column 3. "Did a caller have enough to work
-        # with" is not: MIN_DEPTH is tested against the overlap-removed,
-        # quality-filtered count, which runs 70-75% of raw, so counting thin
-        # against column 3 reports a whole band of positions as adequately
-        # covered that no caller ever evaluated. Falls back to raw for
-        # three-column files, which is exactly what this did before.
+        # with" is not — MIN_DEPTH is tested against the filtered count, so
+        # counting thin against column 3 understates the exposure. Falls back
+        # to raw for three-column files, as this always did.
         masked = masked + sum(dv[seq_len(n)] == 0)
         tv = if (!is.null(vv) && length(vv) >= n) vv else dv
         thin = thin + sum(dv[seq_len(n)] > 0 & tv[seq_len(n)] < MIN_DEPTH_NOTE)
