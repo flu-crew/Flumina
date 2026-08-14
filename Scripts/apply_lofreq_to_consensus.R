@@ -65,7 +65,14 @@
 ####
 #### Usage:
 ####   Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold> \
-####       <reference.fa> <depth_dir|NULL> <irma_fasta> <lofreq_vcf> [...]
+####       <reference.fa> <depth_dir|NULL> [--min-depth=N] <irma_fasta> <lofreq_vcf> [...]
+####
+#### --min-depth is the run's MIN_DEPTH (default 100). It is reported against,
+#### never masked at. When the depth files carry the caller-visible column it is
+#### compared to THAT, which is the quantity MIN_DEPTH is actually tested
+#### against everywhere else; three-column files fall back to raw depth and the
+#### summary says so, because the two differ by 25-30% and reporting the wrong
+#### one understates the exposure.
 ####
 #### Output headers are already >sample_SEGMENT, ready for FluMut. Do NOT pass
 #### this through rename_for_flumut.R: that takes the sample name from the
@@ -73,9 +80,26 @@
 
 args = commandArgs(trailingOnly = TRUE)
 
+# --min-depth=N is pulled out before anything positional is read. It arrives as
+# a flag rather than as a fifth positional argument because everything past
+# argument 4 is a variadic FASTA/VCF list: a new positional would be silently
+# swallowed as an IRMA FASTA by any caller that had not been updated in step.
+# Before 2026-08-13 (late) this was hardcoded to 100 and ignored the run's
+# MIN_DEPTH entirely, so the reported exposure was wrong for any run that set -d.
+min_depth_flag = grep("^--min-depth=", args, value = TRUE)
+MIN_DEPTH_NOTE = if (length(min_depth_flag))
+  suppressWarnings(as.numeric(sub("^--min-depth=", "",
+                                  min_depth_flag[length(min_depth_flag)]))) else 100
+if (is.na(MIN_DEPTH_NOTE) || MIN_DEPTH_NOTE < 0) {
+  cat("Error: --min-depth must be a non-negative number\n", file = stderr())
+  quit(status = 1)
+}
+args = args[!grepl("^--min-depth=", args)]
+
 if (length(args) < 6) {
   cat("Usage: Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold>",
-      "<reference.fa> <depth_dir|NULL> <irma_fasta> <lofreq_vcf> [...]\n", file = stderr())
+      "<reference.fa> <depth_dir|NULL> [--min-depth=N] <irma_fasta> <lofreq_vcf> [...]\n",
+      file = stderr())
   quit(status = 1)
 }
 
@@ -109,21 +133,38 @@ if (!use_depth)
       "  Absence of a marker is NOT evidence of absence in this output.\n",
       sep = "", file = stderr())
 
-# Reported alongside the mask so the exposure below MIN_DEPTH stays visible
-# without a second threshold being imposed on the sequence itself.
-MIN_DEPTH_NOTE = 100
+# MIN_DEPTH_NOTE is set from --min-depth above and reported alongside the mask,
+# so the exposure below the floor stays visible without a second threshold being
+# imposed on the sequence itself.
 
-# Returns a named list: segment -> integer vector of depths, or NULL.
+# Returns list(raw = segment -> depths, vis = segment -> depths or NULL), or NULL.
+#
+# Two depths, because DEPTH_PROFILE publishes two: column 3 is every aligned
+# base and column 4 is what the variant callers can actually see once
+# overlapping mates are zeroed and the quality floor applied. Runs before
+# 2026-08-13 (late) have three columns and no `vis`.
 read_depth = function(sample_name) {
   if (!use_depth) return(NULL)
   p = file.path(depth_dir, paste0(sample_name, ".depth"))
   if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
+  # The column count is read from the file rather than assumed, because
+  # colClasses is RECYCLED when it is shorter than the row: a hardcoded
+  # three-element vector against a four-column file types column 4 as character
+  # and happens to keep working, which is luck rather than intent. Anything
+  # past column 4 is dropped explicitly for the same reason.
+  first = readLines(p, n = 1, warn = FALSE)
+  if (!length(first) || !nzchar(first)) return(NULL)
+  ncol_d = length(strsplit(first, "\t")[[1]])
+  classes = c("character", "integer", "integer")
+  if (ncol_d >= 4) classes = c(classes, "integer")
+  if (ncol_d > 4)  classes = c(classes, rep("NULL", ncol_d - 4))
   d = try(utils::read.table(p, sep = "\t", header = FALSE, quote = "",
                             comment.char = "", stringsAsFactors = FALSE,
-                            colClasses = c("character", "integer", "integer")),
+                            colClasses = classes),
           silent = TRUE)
   if (inherits(d, "try-error") || nrow(d) == 0) return(NULL)
-  split(d[[3]], d[[1]])
+  list(raw = split(d[[3]], d[[1]]),
+       vis = if (ncol_d >= 4) split(d[[4]], d[[1]]) else NULL)
 }
 
 read_fasta = function(path) {
@@ -166,6 +207,9 @@ n_samples = length(pairs) / 2
 out_fh = file(output_fasta, "w")
 total_applied = 0; total_skipped = 0; total_oob = 0
 total_masked = 0; total_thin = 0; samples_masked = 0
+# Whether any depth file carried the caller-visible column, so the summary can
+# say which quantity "thin" was counted against instead of leaving it ambiguous.
+any_visible = FALSE
 
 for (i in seq(1, length(pairs), by = 2)) {
   fasta_path = pairs[i]
@@ -196,6 +240,7 @@ for (i in seq(1, length(pairs), by = 2)) {
   }
 
   depth = read_depth(sample_name)
+  if (!is.null(depth) && !is.null(depth$vis)) any_visible = TRUE
 
   applied = 0; oob = 0; emitted = 0; masked = 0; thin = 0
   for (chrom in names(reference)) {
@@ -224,12 +269,21 @@ for (i in seq(1, length(pairs), by = 2)) {
     # marker coordinates — which is where a per-marker coverage check belongs,
     # because that is the only place FluMut's numbering is mapped back to
     # reference positions.
-    dv = if (!is.null(depth)) depth[[chrom]] else NULL
+    dv = if (!is.null(depth)) depth$raw[[chrom]] else NULL
+    vv = if (!is.null(depth) && !is.null(depth$vis)) depth$vis[[chrom]] else NULL
     if (!is.null(dv)) {
       n = min(length(dv), length(seq_chars))
       if (n > 0) {
+        # Two questions, two depths. "Was there any read here at all" is a raw
+        # question and stays on column 3. "Did a caller have enough to work
+        # with" is not: MIN_DEPTH is tested against the overlap-removed,
+        # quality-filtered count, which runs 70-75% of raw, so counting thin
+        # against column 3 reports a whole band of positions as adequately
+        # covered that no caller ever evaluated. Falls back to raw for
+        # three-column files, which is exactly what this did before.
         masked = masked + sum(dv[seq_len(n)] == 0)
-        thin   = thin   + sum(dv[seq_len(n)] > 0 & dv[seq_len(n)] < MIN_DEPTH_NOTE)
+        tv = if (!is.null(vv) && length(vv) >= n) vv else dv
+        thin = thin + sum(dv[seq_len(n)] > 0 & tv[seq_len(n)] < MIN_DEPTH_NOTE)
       }
     }
 
@@ -260,8 +314,13 @@ if (total_oob > 0)
 if (use_depth) {
   cat(sprintf("  %d position(s) across %d sample(s) have ZERO coverage: the reference base stands in\n",
               total_masked, samples_masked), file = stderr())
-  cat(sprintf("  %d further position(s) have coverage below %d\n",
-              total_thin, MIN_DEPTH_NOTE), file = stderr())
+  cat(sprintf("  %d further position(s) have coverage below %g, %s\n",
+              total_thin, MIN_DEPTH_NOTE,
+              if (any_visible)
+                "measured as the callers see it (overlapping mates zeroed, quality floor applied)"
+              else
+                "measured as RAW depth: these depth files predate the caller-visible column, so the true exposure is larger"),
+      file = stderr())
   cat("  Absence of a marker at those positions is NOT evidence of absence. They are\n",
       "  reported rather than masked because writing N into the sequence measurably\n",
       "  MANUFACTURES markers — see the script header. Per-position depth is published\n",
