@@ -883,7 +883,14 @@ MIN_ALLELE_FREQUENCY="${params.min_allele_frequency}"
 MIN_ALLELE_FREQ="${params.min_allele_frequency}"
 MIN_COVERAGE="${params.min_depth}"
 DEDUP_KEYS="${params.dedup_keys}"
-DISABLE_IRMA="${asBool(params.run_irma) ? 'FALSE' : 'TRUE'}"
+# Programs that ran, for the record. The R stage reads the thresholds above, not
+# these switches; they document what produced this run.
+IRMA="${asBool(params.run_irma) ? 'TRUE' : 'FALSE'}"
+LOFREQ="${asBool(params.run_lofreq) ? 'TRUE' : 'FALSE'}"
+GATK4="${asBool(params.run_gatk4) ? 'TRUE' : 'FALSE'}"
+IVAR="${asBool(params.ivar) ? 'TRUE' : 'FALSE'}"
+FLUMUT="${asBool(params.flumut) ? 'TRUE' : 'FALSE'}"
+WFABC="${asBool(params.wfabc) ? 'TRUE' : 'FALSE'}"
 SNPGENIE="${asBool(params.snpgenie) ? 'TRUE' : 'FALSE'}"
 INDIVIDUAL_COLUMN="${params.individual_column}"
 TIME_COLUMN="${params.time_column}"
@@ -1379,6 +1386,32 @@ workflow {
     }
 
     /*
+     * Program dependencies. A program set TRUE must not depend on one set FALSE,
+     * and at least one variant caller must run. These are the same requirements
+     * the config.cfg "Programs to run" section documents.
+     */
+    def progOn = { k -> asBool(params[k]) }
+    if (!(progOn('run_lofreq') || progOn('run_gatk4') || progOn('ivar'))) {
+        error("No variant caller is enabled. Set at least one of LOFREQ, GATK4, or IVAR\n" +
+              "  to TRUE — with all three FALSE there is nothing to call.")
+    }
+    if (progOn('flumut') && !progOn('run_irma')) {
+        error("FLUMUT=TRUE needs IRMA=TRUE: FluMut screens the IRMA consensus, so without\n" +
+              "  IRMA there is no consensus to screen.")
+    }
+    if (progOn('flumut_lowfreq') && !(progOn('run_irma') && progOn('run_lofreq'))) {
+        error("FLUMUT_LOWFREQ=TRUE needs IRMA=TRUE and LOFREQ=TRUE: it applies LoFreq\n" +
+              "  variants to the IRMA consensus before it screens.")
+    }
+    if (progOn('snpgenie') && !progOn('run_lofreq')) {
+        error("SNPGENIE=TRUE needs LOFREQ=TRUE: SNPGenie runs on the pooled LoFreq calls.")
+    }
+    if (progOn('wfabc') && !(progOn('run_lofreq') || progOn('ivar'))) {
+        error("WFABC=TRUE needs LOFREQ=TRUE or IVAR=TRUE: selection is estimated from\n" +
+              "  allele-frequency time series, and GATK4 reports genotypes, not fractions.")
+    }
+
+    /*
      * Build the sample channel straight from the rename CSV.
      *
      * This replaces organizeReads.R, which physically COPIED every raw fastq
@@ -1487,11 +1520,26 @@ workflow {
     marked   = MARK_DUPLICATES(sorted).bam
     final_bam = SET_TAGS(marked, ref).bam
 
-    gvcf     = HAPLOTYPE_CALLER(final_bam, ref).vcf
-    geno     = GENOTYPE_GVCF(gvcf, ref).vcf
-    selected = SELECT_VARIANTS(geno)
-    filtered = FILTER_VARIANTS(selected.snps.join(selected.indels), ref).vcf
-    lofreq   = LOFREQ(final_bam, ref).vcf
+    // GATK4 variant calling. The GATK tools used for ALIGNMENT above
+    // (FASTQ_TO_SAM, MARK_DUPLICATES, ...) are a separate toolchain and always
+    // run; run_gatk4 gates only the caller — HaplotypeCaller through
+    // VariantFiltration. Each enabled caller is normalised to (sample, [files]).
+    def gatk4_ch = null
+    if (asBool(params.run_gatk4)) {
+        gvcf     = HAPLOTYPE_CALLER(final_bam, ref).vcf
+        geno     = GENOTYPE_GVCF(gvcf, ref).vcf
+        selected = SELECT_VARIANTS(geno)
+        gatk4_ch = FILTER_VARIANTS(selected.snps.join(selected.indels), ref).vcf
+                       .map { sample, snps, indels -> tuple(sample, [snps, indels]) }
+    }
+
+    def lofreq_ch = asBool(params.run_lofreq)
+        ? LOFREQ(final_bam, ref).vcf.map { sample, vcf -> tuple(sample, [vcf]) }
+        : null
+
+    def ivar_ch = asBool(params.ivar)
+        ? IVAR(final_bam, ref).tsv.map { sample, tsv -> tuple(sample, [tsv]) }
+        : null
 
     // Per-position depth for every sample. Unconditional: it was once gated on
     // the low-frequency screen being its only consumer, which stopped being true
@@ -1507,19 +1555,17 @@ workflow {
     // this is both the completion gate and the vcf_files/<sample>/ layout that
     // convertVCFtoTable.R parses sample names out of.
     //
-    // Two shapes rather than one join made conditional. `join` against an empty
-    // channel emits NOTHING, so folding an optional iVar into a single join
-    // would not degrade to "no iVar rows" — it would drop every sample from the
-    // R stage and produce an empty run that still exits green.
-    if (asBool(params.ivar)) {
-        per_sample = filtered
-            .join(lofreq)
-            .join(IVAR(final_bam, ref).tsv)
-            .map { sample, snps, indels, lf, iv -> tuple(sample, [snps, indels, lf, iv]) }
-    } else {
-        per_sample = filtered
-            .join(lofreq)
-            .map { sample, snps, indels, lf -> tuple(sample, [snps, indels, lf]) }
+    // Fold every ENABLED caller into one (sample, [files]) tuple, in the same
+    // GATK4, LoFreq, iVar order the all-on default produced. `join` is used, not
+    // `mix`, so a sample must be present in every enabled caller to proceed —
+    // the callers all derive from final_bam, so their sample sets match.
+    // GATHER_SAMPLE_VCFS copies whatever it is handed, and convertVCFtoTable.R
+    // globs each caller's file by name and tolerates any being absent, so a
+    // disabled caller simply drops its rows. Validation above refuses the
+    // no-caller case, so this list is never empty.
+    def caller_chs = [gatk4_ch, lofreq_ch, ivar_ch].findAll { it != null }
+    per_sample = caller_chs.inject(null) { acc, ch ->
+        acc == null ? ch : acc.join(ch).map { sample, a, b -> tuple(sample, a + b) }
     }
 
     vcf_dirs = GATHER_SAMPLE_VCFS(per_sample).dir.collect()
