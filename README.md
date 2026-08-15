@@ -270,3 +270,47 @@ Results are written to the output directory given by `-o`:
 | `wfabc_analysis/` | Selection coefficients and Ne estimates (`-W`) |
 | `logs/` | Per-sample tool logs, and `missing_samples.log` if any sample had no reads |
 | `pipeline_info/` | Run timeline, resource report, trace, and the exact config used |
+
+# Viewing results in FluLens
+
+[FluLens](https://github.com/flu-crew/FluLens) is an interactive viewer for
+Flumina and [FluPore](https://github.com/flu-crew/FluPore) output. It shows all
+variant calls in a samples-by-codons grid. You can filter, sort, and click any
+cell to see the allele frequency, strand balance, and a quality verdict. FluLens
+runs in a browser and reads files on your machine. It uploads nothing.
+
+![FluLens showing a variant's assessment panel](https://raw.githubusercontent.com/flu-crew/FluLens/main/docs/img/variant-panel.png)
+
+## Pipeline settings for maximum FluLens usage
+
+FluLens reads every output that Flumina can produce. To get the most from it,
+keep the default analyses turned on and add the optional ones that apply to your
+data:
+
+| Setting | Default | What it gives FluLens |
+|---|---|---|
+| LoFreq / GATK4 variant calling | always on | the variant grid itself |
+| curated amino acid database (`-a`) | on | curated-site markers in the grid |
+| FluMut consensus screening | on | H5N1 marker annotations |
+| FluMut low-frequency screening (`-l`) | off | markers present below consensus — turn it on |
+| metadata CSV (`-m`) | off | sample grouping, QC context — provide one if you have it |
+| SNPGenie (`-G`) | off | per-codon dN/dS diversity layer — turn it on if you want selection pressure |
+| WFABC (`-W`) | off | per-site selection coefficients — **time-series data only** |
+
+**WFABC** needs metadata with an individual column and a time-point column.
+If your samples are not a time series, set WFABC to `FALSE` (the default). It
+will not produce useful output without repeated sampling of the same individuals.
+
+**FluLens still works when analyses are off.** It displays what it finds. If you
+skip FluMut, the marker panel stays empty. If you skip SNPGenie, the diversity
+layer is absent. The variant grid, assessment verdicts, pile-up, and coverage
+strip all work with just the core output.
+
+## Try it now
+
+**[▶ Open the Flumina example in FluLens](https://flu-crew.github.io/FluLens/?run=example_run)** —
+synthetic data, twelve samples, nothing to install.
+
+To load your own run, open [FluLens](https://flu-crew.github.io/FluLens/) and
+click **Open run folder…**. Select your Flumina output directory (the one that
+contains `variant_analysis/`).
