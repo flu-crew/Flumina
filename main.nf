@@ -117,6 +117,17 @@ def asBool(value) {
 }
 
 /*
+ * Is a program switched on? A top-level function, NOT a closure assigned to a
+ * local inside the workflow. The strict parser resolves `progOn(...)` as a call
+ * to a FUNCTION, so a closure of that name is reported "not defined" and the
+ * whole script fails to compile — every dependency check below it included.
+ * Verified on the pinned 26.04.3.
+ */
+def progOn(String key) {
+    return asBool(params[key])
+}
+
+/*
  * The numeric sibling of asBool, and it exists for the same reason — the same
  * 25.x change, one type over.
  *
@@ -228,7 +239,18 @@ process PREPARE_REFERENCE {
 
     script:
     """
-    cp -L ${reference} reference.fa
+    # A reference written on Windows, or downloaded from GISAID, carries CRLF
+    # line endings. samtools faidx, Biostrings and the python scripts all drop
+    # the CR, but bwa's FASTA reader keeps it as a sequence character. Positions
+    # after a CR then shift by one per preceding CR, so mpileup compares each
+    # read base against the wrong reference base and the callers report most of
+    # the segment as fixed variants. Normalising here covers every tool, because
+    # this reference.fa is the copy that gets indexed, mapped against and
+    # published. Numbers in HANDOFF.md.
+    if [ -n "\$(tr -cd '\\r' < ${reference} | head -c1)" ]; then
+        echo "NOTE: reference has CRLF line endings - using a normalised copy"
+    fi
+    tr -d '\\r' < ${reference} > reference.fa
     bwa index -a bwtsw reference.fa
     samtools faidx reference.fa
     gatk CreateSequenceDictionary --REFERENCE reference.fa --OUTPUT reference.dict \\
@@ -1390,7 +1412,6 @@ workflow {
      * and at least one variant caller must run. These are the same requirements
      * the config.cfg "Programs to run" section documents.
      */
-    def progOn = { k -> asBool(params[k]) }
     if (!(progOn('run_lofreq') || progOn('run_gatk4') || progOn('ivar'))) {
         error("No variant caller is enabled. Set at least one of LOFREQ, GATK4, or IVAR\n" +
               "  to TRUE — with all three FALSE there is nothing to call.")
