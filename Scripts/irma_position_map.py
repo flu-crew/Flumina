@@ -439,7 +439,10 @@ def main():
                 ref_aa = translate_codon(''.join(ref_seq[i] for i in tri))
                 mapped = [pos.get(i) for i in tri]
 
-                if any(m is None for m in mapped):
+                # A mapped position can index past the end of a PARTIAL IRMA
+                # contig (real data assembles only part of a segment), so bound-
+                # check con[m] the same way the depth access below guards dep[m].
+                if any(m is None or m >= len(con) for m in mapped):
                     counts['uncovered'] += 1
                     aa_rows.append((sample, product, k + 1, ref_aa, '', 'uncovered', ''))
                     continue

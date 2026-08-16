@@ -220,7 +220,29 @@ ivar.samples.seen = character(0)
 for (i in seq_along(ivar.files)) {
 
   ivar.path = paste0(vcf.directory, "/", ivar.files[i])
-  ivar.tab = try(utils::read.table(ivar.path, sep = "\t", header = TRUE,
+
+  # iVar TSVs are occasionally column-RAGGED: a few indel/edge rows carry an
+  # extra tab-delimited field (e.g. 21 columns against the 20-column header, with
+  # an empty REF/ALT). A plain read.table then throws "more columns than column
+  # names"; the try() below swallows it and the ENTIRE sample's calls are dropped,
+  # turning a real run into an empty variant table. Read the lines first and keep
+  # only those whose field count matches the header — the discarded rows are
+  # malformed indel artefacts the indel filter would drop anyway. Count by tab
+  # (robust to trailing empty fields, which strsplit would silently eat).
+  raw = readLines(ivar.path, warn = FALSE)
+  if (length(raw) < 1L) { next }
+  n.fields = function(s) vapply(gregexpr("\t", s, fixed = TRUE),
+                                function(g) if (g[1L] == -1L) 1L else length(g) + 1L,
+                                integer(1L))
+  ncol.header = n.fields(raw[1L])
+  ivar.body   = raw[-1L]
+  keep.rows   = n.fields(ivar.body) == ncol.header
+  if (any(!keep.rows)) {
+    cat(sprintf("  note: %s -- dropped %d ragged row(s) (fields != %d)\n",
+                basename(ivar.path), sum(!keep.rows), ncol.header))
+  }
+  ivar.tab = try(utils::read.table(text = c(raw[1L], ivar.body[keep.rows]),
+                                   sep = "\t", header = TRUE,
                                    stringsAsFactors = FALSE, check.names = FALSE,
                                    colClasses = "character", quote = "",
                                    comment.char = "", na.strings = ""),
