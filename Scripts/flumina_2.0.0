@@ -727,6 +727,51 @@ check_number "l" "$FLUMUT_FREQ"  0 1
 [ -f "$REFERENCE_FILE" ] || abort "Reference FASTA not found: ${REFERENCE_FILE}
        Set it with -r"
 
+#makeGTF.R assumes each segment is a coding sequence that starts at base 1. It
+#does not search for the start codon. Nothing downstream detects a broken
+#reference: makeGTF annotates the wrong frame, so every amino-acid call for the
+#segment is wrong. This check stops that. Each segment must pass two rules: base
+#1-3 is ATG, and the ORF from base 1 covers at least 50% of the segment. The 50%
+#floor is loose because MP and NS are bicistronic; their primary ORF (M1, NS1)
+#covers only 77-78%. The awk strips \r, so the check runs on the real sequence
+#(this step is before PREPARE_REFERENCE normalises CRLF). Keep it identical to
+#FluPore's copy. Numbers in FluPore's HANDOFF.md.
+ref_problems=$(awk '
+    /^>/ { name=substr($0,2); sub(/[ \t].*/,"",name); order[++k]=name; next }
+         { gsub(/[ \t\r]/,""); seq[name]=seq[name] toupper($0) }
+    END {
+        for (i=1; i<=k; i++) {
+            nm=order[i]; s=seq[nm]; L=length(s)
+            if (L < 6) {
+                printf "  %s: sequence is empty or too short (%d nt)\n", nm, L
+                continue
+            }
+            if (substr(s,1,3) != "ATG") {
+                printf "  %s: does not begin with a start codon (base 1-3 is %s, not ATG)\n", \
+                       nm, substr(s,1,3)
+                continue
+            }
+            n = L - (L % 3); stop = 0
+            for (p = 1; p + 2 <= n; p += 3) {
+                c = substr(s, p, 3)
+                if (c == "TAA" || c == "TAG" || c == "TGA") { stop = p; break }
+            }
+            orf = (stop > 0) ? stop - 1 : n
+            if (100 * orf / L < 50)
+                printf "  %s: ORF from base 1 runs only %d aa before a stop (%.1f%% of %d nt) — the reading frame is wrong\n", \
+                       nm, orf / 3, 100 * orf / L, L
+        }
+    }' "$REFERENCE_FILE")
+
+[ -z "$ref_problems" ] || abort "${REFERENCE_FILE} is not a valid coding reference.
+
+${ref_problems}
+
+       Each segment must be a coding sequence whose start codon is at base 1.
+       Sequences taken from an alignment are the usual cause: they are trimmed
+       to an alignment column, not to a codon boundary, and gap-stripping can
+       shift the frame. Trim each segment to its own ATG before re-running."
+
 #The curated database and the metadata are both optional: a missing one drops
 #the step it feeds and the run continues. The warning names the path it looked
 #for, so a typo is still visible — it just does not cost you the whole run.
