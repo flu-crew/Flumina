@@ -897,6 +897,7 @@ GROUP_NAMES="${group_cfg}"
 MIN_DEPTH="${params.min_depth}"
 MIN_QUALITY="${params.min_quality}"
 MIN_ALLELE_FREQUENCY="${params.min_allele_frequency}"
+MIN_ALT="${params.min_alt}"
 # runSNPGenie.R reads these two under different names than the rest of the
 # pipeline (MIN_ALLELE_FREQ / MIN_COVERAGE, not MIN_ALLELE_FREQUENCY /
 # MIN_DEPTH). Writing both spellings is what makes SNPGenie actually honour the
