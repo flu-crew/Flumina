@@ -92,6 +92,9 @@ function print_help_menu() {
         -q : Minimum quality to keep a variant, 0 disables. Default is 30
         -f : Minimum allele frequency to keep a variant (0-1).
              Default is 0.01 (1%)
+        -b : Minimum alternate-allele read count. Variants with fewer
+             supporting reads are flagged but not filtered upstream;
+             FluLens uses it as an assessment floor. Default is 10
         -l : Also screen LOW-FREQUENCY variants for H5N1 markers with FluMut,
              at this minimum allele frequency (0-1). LoFreq variants at or
              above this frequency are applied to the IRMA consensus and the
@@ -300,6 +303,7 @@ function load_config_file() {
             MIN_DEPTH)             CFG_MIN_DEPTH="$value" ;;
             MIN_QUALITY)           CFG_MIN_QUALITY="$value" ;;
             MIN_ALLELE_FREQUENCY)  CFG_MIN_FREQ="$value" ;;
+            MIN_ALT)               CFG_MIN_ALT="$value" ;;
             DEDUP_KEYS)            CFG_DEDUP_KEYS="$value" ;;
             THREADS)               CFG_THREADS="$value" ;;
             IRMA)                  CFG_IRMA="$value" ;;
@@ -376,6 +380,7 @@ GROUP_NAMES="discrete_host"
 MIN_DEPTH=100
 MIN_QUALITY=30
 MIN_FREQ=0.01
+MIN_ALT=10
 DEDUP_KEYS=""
 CLUSTER_QUEUE=""
 CLUSTER_OPTIONS=""
@@ -433,7 +438,7 @@ CONFIG_FILE=""
 
 #Go through input and assign input arguments to variables. Values are held aside
 #so they can be applied AFTER the config file, letting flags win over the file.
-while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
+while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
     case ${opt} in
       i ) CLI_READS=$OPTARG ;;
       o ) CLI_OUTDIR=$OPTARG ;;
@@ -451,6 +456,7 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
       d ) CLI_MIN_DEPTH=$OPTARG ;;
       q ) CLI_MIN_QUALITY=$OPTARG ;;
       f ) CLI_MIN_FREQ=$OPTARG ;;
+      b ) CLI_MIN_ALT=$OPTARG ;;
       l ) CLI_FLUMUT_FREQ=$OPTARG ;;
       x ) CLI_IRMA_CONFIG=$OPTARG ;;
       p ) CLI_PROFILE=$OPTARG ;;
@@ -565,6 +571,7 @@ if [ -n "$CONFIG_FILE" ]; then
     [ -n "$CFG_MIN_DEPTH" ]         && MIN_DEPTH="$CFG_MIN_DEPTH"
     [ -n "$CFG_MIN_QUALITY" ]       && MIN_QUALITY="$CFG_MIN_QUALITY"
     [ -n "$CFG_MIN_FREQ" ]          && MIN_FREQ="$CFG_MIN_FREQ"
+    [ -n "$CFG_MIN_ALT" ]           && MIN_ALT="$CFG_MIN_ALT"
     [ -n "$CFG_DEDUP_KEYS" ]        && DEDUP_KEYS="$CFG_DEDUP_KEYS"
     [ -n "$CFG_IRMA_CONFIG" ]       && IRMA_CONFIG="$CFG_IRMA_CONFIG"
     [ -n "$CFG_WORKDIR" ]           && WORK_DIR="$CFG_WORKDIR"
@@ -626,6 +633,7 @@ fi
 [ -n "$CLI_MIN_DEPTH" ]    && MIN_DEPTH="$CLI_MIN_DEPTH"
 [ -n "$CLI_MIN_QUALITY" ]  && MIN_QUALITY="$CLI_MIN_QUALITY"
 [ -n "$CLI_MIN_FREQ" ]     && MIN_FREQ="$CLI_MIN_FREQ"
+[ -n "$CLI_MIN_ALT" ]      && MIN_ALT="$CLI_MIN_ALT"
 [ -n "$CLI_IRMA_CONFIG" ]  && IRMA_CONFIG="$CLI_IRMA_CONFIG"
 [ -n "$CLI_PROFILE" ]      && PROFILE="$CLI_PROFILE"
 [ -n "$CLI_WORKDIR" ]      && WORK_DIR="$CLI_WORKDIR"
@@ -714,6 +722,7 @@ check_number "t" "$NTHREADS"     1 1024
 check_number "d" "$MIN_DEPTH"    0 1000000
 check_number "q" "$MIN_QUALITY"  0 1000
 check_number "f" "$MIN_FREQ"     0 1
+check_number "b" "$MIN_ALT"      0 1000000
 check_number "l" "$FLUMUT_FREQ"  0 1
 [ -n "$QUEUE_SIZE" ] && check_number "j" "$QUEUE_SIZE" 1 100000
 
@@ -844,6 +853,7 @@ NF_ARGS=(
     --min_depth "$MIN_DEPTH"
     --min_quality "$MIN_QUALITY"
     --min_allele_frequency "$MIN_FREQ"
+    --min_alt "$MIN_ALT"
     --max_cpus "$NTHREADS"
     --run_irma "$RUN_IRMA"
     --run_lofreq "$RUN_LOFREQ"
@@ -940,6 +950,7 @@ cat <<startBanner
     Minimum depth       : ${MIN_DEPTH} (caller-visible depth, not raw — see depth_profiles/)
     Minimum quality     : ${MIN_QUALITY}
     Minimum frequency   : ${MIN_FREQ}
+    Minimum alt reads   : ${MIN_ALT}
     IRMA assembly       : ${RUN_IRMA}
     LoFreq calling      : ${RUN_LOFREQ}
     GATK4 calling       : ${RUN_GATK4}
