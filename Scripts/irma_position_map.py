@@ -429,7 +429,11 @@ def main():
                                  n_codons, 0))
                 tally['absent'] += 1
                 for k in range(n_codons):
-                    ref_aa = translate_codon(''.join(ref_seq[i] for i in ref_idx[3 * k:3 * k + 3]))
+                    tri = ref_idx[3 * k:3 * k + 3]
+                    if any(i >= len(ref_seq) for i in tri):
+                        ref_aa = '?'
+                    else:
+                        ref_aa = translate_codon(''.join(ref_seq[i] for i in tri))
                     aa_rows.append((sample, product, k + 1, ref_aa, '', 'uncovered', ''))
                 continue
 
