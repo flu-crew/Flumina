@@ -1,8 +1,15 @@
-
 .DS_Store
 
 # Nextflow
+work/
 .nextflow/
 .nextflow.log*
-work/
 results/
+test_results/
+# The `test_full` profile writes here. It was missing until 2026-08-08, which is
+# its own small piece of evidence that the profile had never actually been run.
+test_results_full/
+*.sif
+# Also covered globally now (~/.config/git/ignore), kept here so the repo is
+# self-explanatory to anyone without that config. Was listed twice.
+HANDOFF.md
