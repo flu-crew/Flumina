@@ -8,8 +8,35 @@ dependencies:
   - bioconductor-biostrings=2.66.0
   - fastp=0.23.4
   - gatk4=4.5.0.0
-  - irma=1.0.3
+# NOT irma: bioconda's newest is 1.0.3, so IRMA is installed from the CDC's
+# GitHub release in the Dockerfile instead (currently 1.3.5).
+#
+# IRMA feeds every read through `parallel --pipe`, and it used to arrive here
+# only as an unpinned dependency of irma — so a rebuild silently picked up
+# whatever GNU parallel released most recently. Release 20260722 broke --pipe
+# outright: even `parallel --pipe cat` fails with "exec failed: No such file or
+# directory", while ordinary non-pipe use is fine. IRMA then produces its whole
+# output directory skeleton, empty, and STILL EXITS 0, so nothing downstream
+# notices.
+#
+# IRMA 1.3.5 vendors its own parallel, but its set_bin() prefers whatever is on
+# PATH, so a broken conda parallel would still win. Hence this stays pinned.
+  - parallel=20240722
+# Needed only to unpack the IRMA release during the image build.
+  - unzip=6.0
   - lofreq=2.1.5
+# iVar is the third caller. It reads a samtools mpileup on stdin and writes a
+# TSV rather than a VCF, which is why convertVCFtoTable.R parses it separately.
+#
+# PINNED TO 1.4.3, AND NOT HIGHER, BECAUSE OF BWA. ivar 1.4.4 requires
+# libzlib >=1.3.1; every bwa 0.7.17 build on bioconda needs zlib <1.3, and the
+# two cannot both be satisfied. The solver reports this as an ivar/zlib problem,
+# which reads like a packaging detail and is not one — the only way to take
+# 1.4.4 is to move bwa, and moving the mapper changes every BAM and therefore
+# every variant call in the pipeline. A caller version is worth far less than
+# that. 1.4.3 resolves with bwa 0.7.17, zlib 1.2.13 and samtools 1.19.2 all
+# unchanged, and writes the same variants TSV that convertVCFtoTable.R reads.
+  - ivar=1.4.3
   - python=3.10.14
   - samtools=1.19
   - r-doparallel=1.0.17
@@ -19,4 +46,22 @@ dependencies:
   - r-seqinr=4.2_30
   - r-stringr=1.5.0
   - r-foreach=1.5.2
-  - snakemake=7.32.4
+  - r-coda=0.19_4
+  - flumut=0.6.5
+# The marker DATABASE is a separate package from the tool and floats on its own.
+# Pinning flumut alone does not fix it: flumut=0.6.5 resolves happily with
+# flumutdb 6.5 or 6.7, and which one you get depends on when the image was built.
+# That is the silent nondeterminism this pipeline pins everything else to avoid —
+# the same reference and the same reads would report different markers on
+# different days, with nothing in the output saying why. 6.7 is what the current
+# image ships and what the position map was validated against. Moving it is a
+# deliberate, recorded decision, exactly like the ivar pin above.
+  - flumutdb=6.7
+# Used by flumut_position_map.py to align FluMut's reference proteins onto this
+# run's. It arrives transitively through flumut today, which means a flumut
+# update could drop or downgrade it and take the position map with it. >=1.86 is
+# the real requirement: PairwiseAligner.end_insertion_score is the renamed
+# spelling of the free-end-gap score, and without free end gaps HA1 aligns across
+# the whole ORF and is placed wrongly rather than not at all.
+  - biopython>=1.86
+

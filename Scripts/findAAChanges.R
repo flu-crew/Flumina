@@ -6,8 +6,7 @@
 # 2. foreach
 # 3. doParallel
 # 4. snow
-# 5. Biostrings
-# 6. seqinr
+# 5. seqinr
 
 #Takes 5 minutes to run on 500 samples
 
@@ -45,16 +44,39 @@ reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY),"/reference.fa")
 
 #Optional for merging metadata with AA data, set to NULL if none available
 metadata.file = gsub("\"", "", config$METADATA)
-if(length(metadata.file) == 0L) {
+if(length(metadata.file) == 0L || metadata.file == "NULL") {
   metadata.file <- NULL
 }
 
 #Set multithreading and memory usage
 threads = as.numeric(gsub("\"", "", config$THREADS))
 
-# output.directory = "/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/variant_analysis"
+# Config helper with defaults (returns `default` when the key is missing/blank/NULL).
+# Robust to interactive runs where the config file was not parsed into `config`.
+if (!exists("config") || !is.list(config)) config = list()
+cfg = function(key, default = NULL){
+  v = config[[key]]
+  if (is.null(v)) return(default)
+  v = gsub("\"", "", trimws(v))
+  if (!nzchar(v) || v == "NULL") return(default)
+  v
+}
+
+# Depth-artifact guards applied to the combined amino-acid table (see below).
+# MIN_DEPTH defaults to 100x: at low template input LoFreq/GATK4 report false
+# fixations (founder/jackpot effect), so a real depth floor is enforced by
+# default even if a study omits the key. MIN_QUALITY defaults off (0).
+# DEDUP_KEYS is opt-in: a comma-separated list of metadata columns identifying
+# one biological sample (e.g. "Animal.ID,DPI,Quarter"); when set, replicate
+# libraries of the same sample are collapsed by keeping the deepest call per
+# sample x locus x position x alternative. Unset -> no dedup (default).
+min.depth   = as.numeric(cfg("MIN_DEPTH", "100"))
+min.quality = as.numeric(cfg("MIN_QUALITY", "0"))
+dedup.keys  = cfg("DEDUP_KEYS", "")
+
+# output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/variant_analysis"
 # vcftable.path = paste0(output.directory, "/variant-table.csv")
-# reference.path = paste0("/Volumes/Extreme_SSD/cattle-hpai-june/experiment-study/Reference/reference.fa")
+# reference.path = paste0("/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/Reference/reference.fa")
 # threads = 4
 # metadata.file = NULL
 
@@ -66,81 +88,125 @@ threads = as.numeric(gsub("\"", "", config$THREADS))
 dir.create(paste0(output.directory, "/aa_db"))
 require(foreach)
 
+# Coding intervals for every product, shared with convertVCFtoTable.R so the
+# two cannot disagree about where a gene starts.
+script.dir = dirname(sub("^--file=", "",
+                         grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)[1]))
+if (is.na(script.dir) || !nzchar(script.dir)) script.dir = "."
+source(file.path(script.dir, "fluORFs.R"))
+
 #Get multifile databases together
-reference = Biostrings::readDNAStringSet(reference.path, format = "fasta")
-vcf.data = read.csv(vcftable.path, header = T)
+reference = flu_read_fasta(reference.path)
+
+# na.strings = "" is NOT optional here. The neuraminidase gene is called "NA",
+# so read.csv's default turns every neuraminidase row's `product` (and, once
+# the locus is shortened, its `locus`) into a missing value and the entire
+# segment silently disappears — 797 of 18,771 rows on the swine WGS data.
+# outputSummary.R reads the amino-acid table with the same setting for exactly
+# this reason.
+vcf.data = read.csv(vcftable.path, header = TRUE, na.strings = "")
 sample.names = unique(vcf.data$sample)
+
+# Older variant tables have no `product` column. Rather than silently translate
+# them in the wrong frame, annotate them here the same way convertVCFtoTable.R
+# now does.
+if (!"product" %in% colnames(vcf.data)){
+  message("variant-table.csv predates per-product annotation; annotating now.")
+  vcf.data = flu_annotate_positions(vcf.data, reference,
+                                    locus.col = "locus", pos.col = "position")
+}
+
+# The SPLICED coding sequence of every product, built once.
+#
+# This is the correction that matters. The old code took codons straight out of
+# the segment at (aa_position-1)*3+1, which silently assumes the CDS is
+# contiguous and starts at nucleotide 1. For M2, NEP and PA-X it is neither, so
+# every codon it produced for those products was read out of the wrong place —
+# and past the end of M1 and NS1 it happily translated through the stop codon
+# and returned a plausible-looking amino acid for a residue that does not exist.
+# Indexing into the spliced CDS instead makes the junction a non-event.
+cds.lookup = list()
+for (lc in names(reference)){
+  for (o in flu_orfs(lc, nchar(reference[[lc]])))
+    cds.lookup[[paste(lc, o$gene, sep = "|")]] = flu_cds_seq(o, reference[[lc]])
+}
+
+# One translation unit per (segment, product) pair present in the data
+gene.keys = unique(vcf.data[, c("locus", "product")])
+gene.keys = gene.keys[!is.na(gene.keys$product), , drop = FALSE]
 
 # Sets up multiprocessing
 my.cluster = parallel::makeCluster(threads, type = "PSOCK")
 doParallel::registerDoParallel(cl = my.cluster)
 
 #Loop for cd-hit est reductions
-foreach::foreach(i = seq_along(sample.names), .packages = c("foreach", "Biostrings", "seqinr", "data.table")) %dopar% {
-  
+foreach::foreach(i = seq_along(sample.names), .packages = c("foreach", "seqinr", "data.table")) %dopar% {
+
 #for (i in 1:length(sample.names)){
   #Subsets to sample data
   sample.data = vcf.data[vcf.data$sample %in% sample.names[i],]
-  #gathers gene names
-  gene.names = unique(vcf.data$locus)
-  
-  #loops through each gene to assess amino acids
+
+  #loops through each (segment, product) pair to assess amino acids
   new.gene = c()
-  for (j in 1:length(gene.names)){
-    
+  for (j in seq_len(nrow(gene.keys))){
+
     #Creates empty spots for new variables
-    gene.data = sample.data[sample.data$locus %in% gene.names[j],]
-    
+    gene.data = sample.data[sample.data$locus   %in% gene.keys$locus[j] &
+                            sample.data$product %in% gene.keys$product[j], ]
+
     if (nrow(gene.data) == 0){ next }
-    
+
     gene.data$reference_codon = "NA"
     gene.data$alternative_codon = "NA"
     gene.data$reference_aa = "NA"
     gene.data$alternative_aa = "NA"
     gene.data$aa_changing = "NA"
-    
-    #Subsets to reference for specific gene, translates
-    ref.seq = as.character(reference[names(reference) == gene.names[j]])
+
+    #The spliced CDS of this product; codons are indexed into THIS, not the segment
+    ref.cds = cds.lookup[[paste(gene.keys$locus[j], gene.keys$product[j], sep = "|")]]
+    if (is.null(ref.cds)){ new.gene = rbind(new.gene, gene.data); next }
 
     #loops through each row in the gene data to translate
     for (k in 1:nrow(gene.data)){
-    
-      #skips if no data for gene  
-      if (nrow(gene.data) == 0){ next }
-      
-      #Converts gene reference to character vector to change to alternative allele position
-      gene.char = unlist(strsplit(as.character(ref.seq), ""))
-      gene.char[gene.data$position[k]] = gene.data$alternative[k]
-      new.seq = Biostrings::DNAStringSet(paste(gene.char, collapse = ""))
 
-      #Subseqs the codons out
-      gene.data$reference_codon[k] = Biostrings::subseq(ref.seq, 
-                                                        start = (gene.data$aa_position[k] - 1) * 3 + 1, 
-                                                        end = (gene.data$aa_position[k] - 1) * 3 + 3 ) 
-      
-      gene.data$alternative_codon[k] = Biostrings::subseq(new.seq, 
-                                                          start = (gene.data$aa_position[k] - 1) * 3 + 1, 
-                                                          end = (gene.data$aa_position[k] - 1) * 3 + 3 ) 
+      #A position in no coding region has no codon. Leave it "NA" rather than
+      #inventing one — this is exactly the case the old code got wrong.
+      cds.pos = gene.data$cds_position[k]
+      aa.pos  = gene.data$aa_position[k]
+      if (is.na(cds.pos) || is.na(aa.pos)) next
+
+      #Swap the alternative base in at its CDS index
+      alt.cds = ref.cds
+      substr(alt.cds, cds.pos, cds.pos) = as.character(gene.data$alternative[k])
+
+      #Subseqs the codons out of the spliced CDS
+      cod.start = (aa.pos - 1) * 3 + 1
+      gene.data$reference_codon[k]   = substr(ref.cds, cod.start, cod.start + 2)
+      gene.data$alternative_codon[k] = substr(alt.cds, cod.start, cod.start + 2)
+
+      #A truncated final codon cannot be translated
+      if (nchar(gene.data$reference_codon[k]) < 3) next
+
       #translates codon
       gene.data$reference_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$reference_codon[k], ""))))
       gene.data$alternative_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$alternative_codon[k], ""))))
-      
+
       #Checks if it changed the amino acid
       if (gene.data$reference_aa[k] == gene.data$alternative_aa[k]){
         gene.data$aa_changing[k] = "NO"
       } else { gene.data$aa_changing[k] = "YES"}
-      
+
     }#end k
-  
+
     #Saves all data
-    new.gene = rbind(new.gene, gene.data)  
-    
+    new.gene = rbind(new.gene, gene.data)
+
   }# end j loop
-  
+
   #Writes data for each sample
   write.csv(new.gene, paste0(output.directory, "/aa_db/", sample.names[i], ".csv"),
             row.names = F, quote = F)
-  
+
 }#end i
   
 parallel::stopCluster(cl = my.cluster)
@@ -160,18 +226,96 @@ aa.sample = list.files(paste0(output.directory, "/aa_db"))
 
 #combines all the individual samples together
 all.samples = c()
-for (i in 1:length(aa.sample)){
+# Samples whose calls survive but which have no row in the metadata CSV. Kept
+# and reported rather than dropped — see the merge below.
+samples.without.metadata = c()
+for (i in seq_along(aa.sample)){
   
-  sample.data = read.csv(paste0(output.directory, "/aa_db/", aa.sample[i]), header = TRUE, sep = ",")
+  # na.strings = "" again — see the note above; "NA" is a gene name here
+  sample.data = read.csv(paste0(output.directory, "/aa_db/", aa.sample[i]),
+                         header = TRUE, sep = ",", na.strings = "")
   
   #Combines metadata if included
   if (is.null(metadata.file) != TRUE){
-    sample.data = merge(sample.data, meta.sample, by.x = "sample", by.y = "Sample")
+    # LEFT join (all.x = TRUE), not merge()'s default INNER one.
+    #
+    # With all = FALSE a sample missing from the metadata CSV produced a
+    # zero-row result and contributed NOTHING to all.samples — every call it
+    # had, discarded, with nothing printed. On the swine WGS run that removed
+    # MC-495 entirely: 318 calls, every one at depth >= 100 and quality >= 30,
+    # max depth 17,998. Nothing else in the pipeline objected to that sample;
+    # it is present in variant-table.csv and in its own aa_db file. It simply
+    # was not in the spreadsheet, so it vanished from
+    # all_sample_amino_acids.txt and from every downstream reader of it.
+    #
+    # A missing metadata ROW is a fact about the spreadsheet, not about the
+    # sequencing, and it must not decide whether a sample's variants exist.
+    # Keep the calls, leave the metadata columns NA, and say so afterwards —
+    # NA metadata is visible, a missing sample is not.
+    if (nrow(sample.data) > 0 && !(sample.data$sample[1] %in% meta.sample$Sample)){
+      samples.without.metadata = c(samples.without.metadata, sample.data$sample[1])
+    }
+    sample.data = merge(sample.data, meta.sample, by.x = "sample", by.y = "Sample",
+                        all.x = TRUE)
   }#end if
   
   sample.data$locus = gsub("^A_", "", sample.data$locus)
+  sample.data$locus = gsub("_[A-Z][0-9]+$", "", sample.data$locus)
   all.samples = rbind(all.samples, sample.data)
 }#end i loop
+
+# Said once, loudly. These samples keep every call and carry NA metadata, which
+# means any downstream grouping by a metadata column will exclude them — that is
+# a defensible outcome, but only if it is a known one.
+if (length(samples.without.metadata) > 0){
+  cat(sprintf("METADATA: %d sample(s) have no row in %s and were kept with NA metadata: %s\n",
+              length(samples.without.metadata), basename(metadata.file),
+              paste(samples.without.metadata, collapse = ", ")))
+  warning(sprintf("%d sample(s) absent from the metadata CSV: %s. Their calls are KEPT ",
+                  length(samples.without.metadata),
+                  paste(samples.without.metadata, collapse = ", ")),
+          "with NA metadata; add them to the CSV if they should be grouped.")
+}
+
+#############################################
+#### Depth-artifact guards (depth/quality floor + optional swab dedup)
+#############################################
+# Low-input libraries produce spurious apparent fixations (founder/jackpot
+# effect); enforce a real read-depth floor here so the amino-acid table (and
+# every downstream high-frequency/curated analysis that reads it) is clean.
+all.samples$depth   = suppressWarnings(as.numeric(all.samples$depth))
+all.samples$quality = suppressWarnings(as.numeric(all.samples$quality))
+n0 = nrow(all.samples)
+all.samples = all.samples[!is.na(all.samples$depth) & all.samples$depth >= min.depth, ]
+if (min.quality > 0){
+  all.samples = all.samples[!is.na(all.samples$quality) & all.samples$quality >= min.quality, ]
+}
+cat(sprintf("Depth/quality filter (MIN_DEPTH=%s, MIN_QUALITY=%s): %d -> %d calls\n",
+            min.depth, min.quality, n0, nrow(all.samples)))
+
+# Optional swab deduplication: collapse replicate libraries of the same
+# biological sample by keeping the DEEPEST call per DEDUP_KEYS x locus x
+# position x alternative. Disabled unless DEDUP_KEYS is set in the config.
+if (nzchar(dedup.keys)){
+  keys = trimws(strsplit(dedup.keys, ",")[[1]])
+  miss = setdiff(keys, colnames(all.samples))
+  if (length(miss) > 0){
+    warning("DEDUP_KEYS column(s) not found (", paste(miss, collapse = ", "),
+            "); skipping swab dedup.")
+  } else {
+    n1 = nrow(all.samples)
+    all.samples = all.samples[order(-all.samples$depth), ]
+    # `product` belongs in the key: one nucleotide can code in two reading
+    # frames, so (locus, position, alternative) alone would collapse a PA row
+    # and its PA-X counterpart into one and silently drop a real annotation.
+    dedup.cols = c(keys, "locus", "product", "position", "alternative")
+    dedup.cols = dedup.cols[dedup.cols %in% colnames(all.samples)]
+    dup.key = do.call(paste, c(all.samples[, dedup.cols], sep = "|"))
+    all.samples = all.samples[!duplicated(dup.key), ]
+    cat(sprintf("Swab dedup on [%s + locus/position/alternative]: %d -> %d calls\n",
+                paste(keys, collapse = ","), n1, nrow(all.samples)))
+  }
+}
 
 #Save large tab delimited table of all the amino acids
 write.table(all.samples, paste0(output.directory, "/all_sample_amino_acids.txt"),
