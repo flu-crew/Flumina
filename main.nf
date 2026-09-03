@@ -376,7 +376,7 @@ process IRMA {
  * ========================================================================== */
 process FASTQ_TO_SAM {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, enabled: params.publish_intermediate_bams
 
     input:  tuple val(sample), path(r1), path(r2)
     output: tuple val(sample), path('fastqsam.bam'), emit: bam
@@ -391,7 +391,7 @@ process FASTQ_TO_SAM {
 
 process REVERT_SAM {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, enabled: params.publish_intermediate_bams
 
     input:  tuple val(sample), path(bam)
     output: tuple val(sample), path('revertsam.bam'), emit: bam
@@ -410,7 +410,7 @@ process REVERT_SAM {
 
 process ADD_READ_GROUPS {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, enabled: params.publish_intermediate_bams
 
     input:  tuple val(sample), path(bam)
     output: tuple val(sample), path('all_reads.bam'), emit: bam
@@ -439,7 +439,7 @@ process ADD_READ_GROUPS {
  */
 process BWA_MAP {
     tag "$sample"; label 'process_high'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, enabled: params.publish_intermediate_bams
 
     input:
     tuple val(sample), path(bam)
@@ -465,7 +465,7 @@ process BWA_MAP {
 
 process SORT_BAM {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, enabled: params.publish_intermediate_bams
 
     input:  tuple val(sample), path(bam)
     output: tuple val(sample), path('mapped_reads_sort.bam'), emit: bam
@@ -480,7 +480,7 @@ process SORT_BAM {
 
 process MARK_DUPLICATES {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, pattern: '*.bam'
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, pattern: '*.bam', enabled: params.publish_intermediate_bams
     publishDir { "${params.outdir}/logs/${sample}" },      mode: params.publish_mode, pattern: '*.txt'
 
     input:  tuple val(sample), path(bam)
@@ -521,7 +521,7 @@ process SET_TAGS {
  * ========================================================================== */
 process HAPLOTYPE_CALLER {
     tag "$sample"; label 'gatk'
-    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, pattern: '*.bam'
+    publishDir { "${params.outdir}/BAM_files/${sample}" }, mode: params.publish_mode, pattern: '*.bam', enabled: params.publish_intermediate_bams
     publishDir { "${params.outdir}/vcf_files/${sample}" }, mode: params.publish_mode, pattern: '*.vcf'
 
     input:
