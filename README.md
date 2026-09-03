@@ -271,6 +271,24 @@ Results are written to the output directory given by `-o`:
 | `logs/` | Per-sample tool logs, and `missing_samples.log` if any sample had no reads |
 | `pipeline_info/` | Run timeline, resource report, trace, and the exact config used |
 
+## Call assessment columns
+
+`variant_analysis/variant-table.csv` (and `all_sample_amino_acids.txt`) carry a
+per-call believability verdict. The pipeline computes it, so the verdict is the
+same everywhere and does not have to be re-derived by each reader. FluLens shows
+the same value and reads it straight from the table.
+
+| Column | Meaning |
+|---|---|
+| `alt_reads` | Reads that support the alternative allele (DP4 alt forward + reverse). This is not depth times frequency: a low-frequency call at high depth can still rest on few reads. |
+| `strand_class` | Strand balance of the alt reads against the reference allele: `balanced`, `some-skew`, `skewed`, `too-few-alt` (fewer than 4 alt reads), `no-ref-control` (the reference allele has too few reads to compare — a fixed call), `not-assessed` (ONT), or empty (no strand record). |
+| `assessment` | The verdict: `Looks real`, `Treat with caution`, `Likely artefact`, or `Cannot assess`. It weighs the strand balance, the read depth, the allele frequency, and the alt-read count against the run's `MIN_DEPTH`, `MIN_ALLELE_FREQUENCY`, and `MIN_ALT`. |
+
+The verdict uses the reconciled frequency (`allele_fraction`), so a GATK4 genotype
+call is judged on the fraction it borrows from LoFreq or iVar, not on its `1.0`
+genotype. A `Cannot assess` verdict means there was no strand record for the call
+(a GATK4 genotype with no LoFreq counterpart).
+
 # Viewing results in FluLens
 
 [FluLens](https://github.com/flu-crew/FluLens) is an interactive viewer for
