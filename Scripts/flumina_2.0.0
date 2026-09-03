@@ -134,7 +134,8 @@ function print_help_menu() {
              'v' = skip iVar, 'l' = skip LoFreq, 'g' = skip GATK4 variant
              calling. At least one caller must remain. These options may be
              combined. Default is 0
-        -C : Delete the work directory when the run finishes successfully.
+        -C : Delete the work directory on success and skip the intermediate
+             BAMs. On by default. Set CLEANUP=FALSE in config.cfg to keep both.
              The work directory holds every intermediate and is roughly the
              size of the results again, so this is worth setting once a run is
              known to work. It also discards the resume cache, so a run cleaned
@@ -386,7 +387,7 @@ CLUSTER_QUEUE=""
 CLUSTER_OPTIONS=""
 QUEUE_SIZE=""
 APPTAINER_CACHE=""
-CLEANUP=""
+CLEANUP="true"          # default on; CLEANUP=FALSE in config.cfg keeps work/
 PUBLISH_MODE=""
 RUN_IRMA="true"
 RUN_FLUMUT="true"
@@ -874,6 +875,8 @@ NF_ARGS=(
 [ -n "$APPTAINER_CACHE" ]      && NF_ARGS+=(--apptainer_cache "$APPTAINER_CACHE")
 [ -n "$PUBLISH_MODE" ]         && NF_ARGS+=(--publish_mode "$PUBLISH_MODE")
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
+# CLEANUP=FALSE also publishes the intermediate BAMs.
+[ "$CLEANUP" != "true" ]       && NF_ARGS+=(--publish_intermediate_bams true)
 #Scheduler settings are written to a generated config file rather than passed as
 #--parameters, because Nextflow rejects any --param whose value begins with a
 #dash — and scheduler options almost always do ('-A account', '--qos=...').
