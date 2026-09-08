@@ -126,13 +126,13 @@ if (!"product" %in% colnames(vcf.data)){
 
 # The SPLICED coding sequence of every product, built once.
 #
-# This is the correction that matters. The old code took codons straight out of
-# the segment at (aa_position-1)*3+1, which silently assumes the CDS is
-# contiguous and starts at nucleotide 1. For M2, NEP and PA-X it is neither, so
-# every codon it produced for those products was read out of the wrong place -
-# and past the end of M1 and NS1 it happily translated through the stop codon
-# and returned a plausible-looking amino acid for a residue that does not exist.
-# Indexing into the spliced CDS instead makes the junction a non-event.
+# This implementation corrects a previous bug where codons were extracted directly
+# from the segment based on the formula `(aa_position-1)*3+1`. That approach
+# incorrectly assumed all coding sequences (CDS) were contiguous and began at 
+# nucleotide 1. For spliced products like M2, NEP, and PA-X, this resulted in 
+# extracting out-of-frame codons or translating past the stop codon (e.g., M1, NS1), 
+# generating erroneous amino acid predictions. Indexing against the properly spliced 
+# CDS accurately accommodates these junctions.
 cds.lookup = list()
 for (lc in names(reference)){
   for (o in flu_orfs(lc, nchar(reference[[lc]])))
@@ -234,32 +234,24 @@ aa.sample = list.files(paste0(output.directory, "/aa_db"))
 
 #combines all the individual samples together
 all.samples = c()
-# Samples whose calls survive but which have no row in the metadata CSV. Kept
-# and reported rather than dropped - see the merge below.
+## Samples that have valid variants but are absent from the metadata CSV are retained
+# and reported rather than being dropped during the merge operation below.
 samples.without.metadata = c()
 for (i in seq_along(aa.sample)){
   
-  # na.strings = "" again - see the note above; "NA" is a gene name here
+  # Ensure na.strings = "" to prevent "NA" gene names from being parsed as missing data.
   sample.data = read.csv(paste0(output.directory, "/aa_db/", aa.sample[i]),
                          header = TRUE, sep = ",", na.strings = "")
   
   #Combines metadata if included
   if (is.null(metadata.file) != TRUE){
-    # LEFT join (all.x = TRUE), not merge()'s default INNER one.
+    # Perform a LEFT join (all.x = TRUE) to retain all variant records.
     #
-    # With all = FALSE a sample missing from the metadata CSV produced a
-    # zero-row result and contributed NOTHING to all.samples - every call it
-    # had, discarded, with nothing printed. On the swine WGS run that removed
-    # MC-495 entirely: 318 calls, every one at depth >= 100 and quality >= 30,
-    # max depth 17,998. Nothing else in the pipeline objected to that sample;
-    # it is present in variant-table.csv and in its own aa_db file. It simply
-    # was not in the spreadsheet, so it vanished from
-    # all_sample_amino_acids.txt and from every downstream reader of it.
-    #
-    # A missing metadata ROW is a fact about the spreadsheet, not about the
-    # sequencing, and it must not decide whether a sample's variants exist.
-    # Keep the calls, leave the metadata columns NA, and say so afterwards -
-    # NA metadata is visible, a missing sample is not.
+    # Using an INNER join (all = FALSE) would silently discard all variant calls
+    # for samples not listed in the metadata CSV, leading to unintended data loss.
+    # The absence of a metadata record should not invalidate the sequencing results.
+    # Retaining these calls with NA metadata values ensures the variants are preserved 
+    # while accurately reflecting the missing metadata.
     if (nrow(sample.data) > 0 && !(sample.data$sample[1] %in% meta.sample$Sample)){
       samples.without.metadata = c(samples.without.metadata, sample.data$sample[1])
     }
@@ -272,9 +264,8 @@ for (i in seq_along(aa.sample)){
   all.samples = rbind(all.samples, sample.data)
 }#end i loop
 
-# Said once, loudly. These samples keep every call and carry NA metadata, which
-# means any downstream grouping by a metadata column will exclude them - that is
-# a defensible outcome, but only if it is a known one.
+# Log a warning for samples that were retained with NA metadata. Note that downstream
+# analyses or grouping operations dependent on metadata columns may exclude these records.
 if (length(samples.without.metadata) > 0){
   cat(sprintf("METADATA: %d sample(s) have no row in %s and were kept with NA metadata: %s\n",
               length(samples.without.metadata), basename(metadata.file),
