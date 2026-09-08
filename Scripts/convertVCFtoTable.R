@@ -35,7 +35,7 @@ vcf.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/vcf_files")
 save.name = "variant-table"
 
 # Amino-acid positions come from the actual coding intervals, not from
-# ceiling(position/3) — see Scripts/fluORFs.R for why that is wrong for M2,
+# ceiling(position/3) - see Scripts/fluORFs.R for why that is wrong for M2,
 # NEP, PA-X and PB1-F2. The ORF definitions are derived from the reference
 # FASTA, NOT from reference_gtf/, because that directory is written later by
 # the optional SNPGenie step and does not exist when this script runs.
@@ -89,7 +89,7 @@ collect.data[, alternative:=as.character(alternative)]
 #Loops through each locus and does operations on them
 # seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
 # c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
-# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" — an
+# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" - an
 # error naming a file that was never meant to exist, which says nothing about
 # the real problem, that the directory matched nothing.
 x = 1
@@ -163,7 +163,7 @@ for (i in seq_along(vcf.files)){
     
     # aa_position is NOT computed here any more. It depends on which product a
     # position codes for, and a position can code for two, so it is filled in
-    # after both callers have been read — see the annotation block below.
+    # after both callers have been read - see the annotation block below.
     #counter goes counting
     x = x + 1
   }#end j loop
@@ -184,7 +184,7 @@ lofreq.data = collect.data
 #### iVar
 #############################################
 # iVar writes a TAB-SEPARATED TABLE, not a VCF, so none of the VCF machinery
-# above applies — there is no #CHROM line to skip to and no INFO field to
+# above applies - there is no #CHROM line to skip to and no INFO field to
 # regex apart. It is read directly.
 #
 # The file may legitimately be absent: IVAR=FALSE means the process never ran,
@@ -193,7 +193,7 @@ lofreq.data = collect.data
 #
 # Everything is read as CHARACTER and converted explicitly. read.table's type
 # guessing is what turns a REF/ALT column of A/C/G/T into logicals when the
-# only values present are T — the same "amino acid T becomes TRUE" problem the
+# only values present are T - the same "amino acid T becomes TRUE" problem the
 # VCF blocks patch up afterwards. Reading as character avoids it at the source,
 # and iVar's own PASS column is genuinely TRUE/FALSE, so a column of "T" and a
 # column of booleans would otherwise be indistinguishable to the reader.
@@ -213,7 +213,7 @@ ivar.rows   = list()
 n.ivar.indel = 0
 # Indel positions for the dist_to_indel column, and the samples an iVar file was
 # actually found for. The second is what separates "no indel near this call"
-# from "no way to tell" — see the indel-proximity block after the callers merge.
+# from "no way to tell" - see the indel-proximity block after the callers merge.
 indel.pos = list()
 ivar.samples.seen = character(0)
 
@@ -226,7 +226,7 @@ for (i in seq_along(ivar.files)) {
   # an empty REF/ALT). A plain read.table then throws "more columns than column
   # names"; the try() below swallows it and the ENTIRE sample's calls are dropped,
   # turning a real run into an empty variant table. Read the lines first and keep
-  # only those whose field count matches the header — the discarded rows are
+  # only those whose field count matches the header - the discarded rows are
   # malformed indel artefacts the indel filter would drop anyway. Count by tab
   # (robust to trailing empty fields, which strsplit would silently eat).
   raw = readLines(ivar.path, warn = FALSE)
@@ -253,8 +253,8 @@ for (i in seq_along(ivar.files)) {
   ivar.sample = gsub("/.*", "", ivar.files[i])
 
   # iVar reports indels in ALT as "+A" / "-T". Every downstream coordinate here
-  # is SNP-based — an indel would shift the reading frame of everything after it
-  # and there is no alignment to shift against — so they are dropped and
+  # is SNP-based - an indel would shift the reading frame of everything after it
+  # and there is no alignment to shift against - so they are dropped and
   # counted, never silently bounds-checked away. The other two callers' indels
   # are separated upstream (SelectVariants / filter_INDEL); iVar puts both kinds
   # in one file, so this is where it happens for iVar.
@@ -265,7 +265,7 @@ for (i in seq_along(ivar.files)) {
   # runs with -B, and the calls that buys are enriched for sitting next to
   # indels, so every call carries its distance to the nearest one.
   #
-  # iVar is the ONLY usable source — GATK4 is a genotype caller and misses
+  # iVar is the ONLY usable source - GATK4 is a genotype caller and misses
   # indels below genotype frequency, so its indel VCF is near-empty and would
   # report that nothing anywhere is indel-adjacent. Numbers in HANDOFF.md.
   #
@@ -295,7 +295,7 @@ for (i in seq_along(ivar.files)) {
     # closest thing iVar reports to the VCF QUAL the other two supply.
     quality          = as.numeric(ivar.tab$ALT_QUAL),
     depth            = as.numeric(ivar.tab$TOTAL_DP),
-    # iVar reports no mapping quality. NA, not 0 — 0 would read as "measured and
+    # iVar reports no mapping quality. NA, not 0 - 0 would read as "measured and
     # terrible" rather than "not measured", and MIN_QUALITY filters on it.
     map_quality      = NA_real_,
     allele_frequency = as.numeric(ivar.tab$ALT_FREQ),
@@ -346,7 +346,7 @@ all.files = list.files(vcf.directory, recursive = T)
 vcf.files = all.files[grep(paste0(vcf.string, "$"), all.files)]
 
 #Collects the super cool data
-# gatk_filter carries VariantFiltration's own verdict — see the block where it
+# gatk_filter carries VariantFiltration's own verdict - see the block where it
 # is read, below.
 header.data = c("method", "sample", "locus", "position", "reference",
                 "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position",
@@ -368,7 +368,7 @@ collect.data[, gatk_filter:=as.character(gatk_filter)]
 #Loops through each locus and does operations on them
 # seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
 # c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
-# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" — an
+# "cannot open file '<outdir>/vcf_files/NA': No such file or directory" - an
 # error naming a file that was never meant to exist, which says nothing about
 # the real problem, that the directory matched nothing.
 x = 1
@@ -392,7 +392,7 @@ for (i in seq_along(vcf.files)){
                    stringsAsFactors = FALSE, check.names = FALSE)
 
   # FILTER is a mandatory VCF column, but read it defensively and once per file
-  # rather than per row. Values are kept VERBATIM, including a bare "." — that
+  # rather than per row. Values are kept VERBATIM, including a bare "." - that
   # is the VCF's own way of saying "no filtering was applied", which is a
   # different statement from the NA the other two callers get, and collapsing
   # the two would lose exactly the distinction this column exists to make.
@@ -426,14 +426,14 @@ for (i in seq_along(vcf.files)){
     # is the same one that earned ivar_pass its own: gatk4-filtered-snps.vcf is
     # VariantFiltration's output, which ANNOTATES rather than removes.
     # Downstream is expected to honour FILTER, and until now nothing here read
-    # it — so every record GATK4 flagged as failing its strand-bias tests
+    # it - so every record GATK4 flagged as failing its strand-bias tests
     # arrived in the table looking exactly like a clean call. On the swine WGS
     # run across all 143 samples that was EVERY record: 96 FS;SOR, 3 FS;QD;SOR,
     # 1 FS, and 0 PASS.
     #
     # Annotated, not dropped. Whether non-PASS rows should be removed outright
     # is a decision that would change published results, and it is not this
-    # script's to make — but it cannot be made at all while the column is
+    # script's to make - but it cannot be made at all while the column is
     # invisible.
     data.table::set(collect.data, i = as.integer(x), j = match("gatk_filter", header.data), value = filter.col[j])
 
@@ -465,7 +465,7 @@ for (i in seq_along(vcf.files)){
     
     # aa_position is NOT computed here any more. It depends on which product a
     # position codes for, and a position can code for two, so it is filled in
-    # after both callers have been read — see the annotation block below.
+    # after both callers have been read - see the annotation block below.
     #counter goes counting
     x = x + 1
   }#end j loop
@@ -482,7 +482,7 @@ collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
 # ivar_pass belongs only to iVar rows and gatk_filter only to GATK4's, so each
 # caller is given the other's column as NA before the bind. NA means "this
-# caller has no such verdict" — a different statement from iVar's FALSE, and a
+# caller has no such verdict" - a different statement from iVar's FALSE, and a
 # different one again from GATK4's own ".", which means "no filter was
 # applied". None of the three may collapse into another.
 #
@@ -495,7 +495,7 @@ data.table::set(collect.data, j = "ivar_pass",   value = NA_character_)
 
 # rbind binds by POSITION, not by name. gatk_filter arrives inside GATK4's own
 # header.data but is appended to the end of the other two, so without this the
-# three tables agree on their column NAMES and disagree on their order — which
+# three tables agree on their column NAMES and disagree on their order - which
 # silently interleaves ivar_pass and gatk_filter values between callers.
 bind.order = c("method", "sample", "locus", "position", "reference", "alternative",
                "quality", "depth", "map_quality", "allele_frequency", "aa_position",
@@ -509,7 +509,7 @@ final.data = rbind(lofreq.data, ivar.data, collect.data)
 #############################################
 #### Reconciling the two callers
 #############################################
-# LoFreq's allele_frequency is an allele FRACTION. GATK4's is a GENOTYPE — a
+# LoFreq's allele_frequency is an allele FRACTION. GATK4's is a GENOTYPE - a
 # hom-alt call is 1.0 whatever the reads say. Measured against the BAM at
 # PB2:1981 in MC-524 on the swine WGS run: LoFreq 85.98%, GATK4 100.00%, and
 # 1,078 reads spanning the codon said 85.44%, with 12.89% still carrying the
@@ -527,7 +527,7 @@ final.data = rbind(lofreq.data, ivar.data, collect.data)
 # downstream consumer stops having to work this out for itself:
 #
 #   variant_id       identical for every row describing the same change
-#   af_type          "fraction" or "genotype" — what allele_frequency IS
+#   af_type          "fraction" or "genotype" - what allele_frequency IS
 #   allele_fraction  the best available true fraction: LoFreq's own value, or
 #                    LoFreq's borrowed for a matching GATK4 row, NA when only
 #                    GATK4 saw it and there is nothing to borrow
@@ -542,7 +542,7 @@ final.data$variant_id = paste(final.data$sample, final.data$locus,
                               sep = "|")
 # iVar reports an allele FRACTION, like LoFreq and unlike GATK4. So there are
 # now two callers measuring the same quantity and one measuring a different one,
-# and af_type says which — never the caller name, which is what a consumer would
+# and af_type says which - never the caller name, which is what a consumer would
 # otherwise have to hardcode a list against.
 final.data$af_type = ifelse(final.data$method == "GATK4", "genotype", "fraction")
 
@@ -590,8 +590,8 @@ cat(sprintf("  GATK4 rows: %d took a fraction from LoFreq or iVar, %d genotype-o
 
 # Counted per CALL, before the amino-acid expansion below, so this is a count of
 # records GATK4 wrote rather than of table rows. Printed because the swine WGS
-# run's answer was that NOT ONE of 100 records passed — 96 FS;SOR, 3 FS;QD;SOR,
-# 1 FS, 0 PASS — and that was invisible for as long as nothing read the column.
+# run's answer was that NOT ONE of 100 records passed - 96 FS;SOR, 3 FS;QD;SOR,
+# 1 FS, 0 PASS - and that was invisible for as long as nothing read the column.
 gatk.filt = final.data$gatk_filter[final.data$method == "GATK4"]
 if (length(gatk.filt) > 0) {
   ft = sort(table(ifelse(is.na(gatk.filt), "(missing)", gatk.filt)), decreasing = TRUE)
@@ -623,7 +623,7 @@ if (n.shared > 0) {
 # a single reading frame starting at nucleotide 1.
 #
 # `locus` deliberately stays the SEGMENT. Everything downstream that keys on it
-# — the curated-database join in outputSummary.R above all — keeps working
+# - the curated-database join in outputSummary.R above all - keeps working
 # unchanged; use the new `product` column to separate reading frames.
 
 final.data = as.data.frame(final.data, stringsAsFactors = FALSE)
@@ -649,7 +649,7 @@ cat("  rows per product:", paste(names(tab), tab, sep = "=", collapse = "  "), "
 #### Indel proximity
 #############################################
 # `lofreq call` runs with -B (BAQ off), which recovers real calls but also
-# admits ones next to indels — what BAQ was suppressing. The cost is carried as
+# admits ones next to indels - what BAQ was suppressing. The cost is carried as
 # a column rather than paid in lost calls, the same way gatk_filter and
 # ivar_pass annotate rather than remove.
 #
@@ -659,7 +659,7 @@ cat("  rows per product:", paste(names(tab), tab, sep = "=", collapse = "  "), "
 #   indel_source   whether an iVar file existed for that sample at all
 #
 # Without the second, NA is ambiguous between "measured, nothing near it" and
-# "iVar never ran, so nobody looked" — opposite conclusions. Same argument as
+# "iVar never ran, so nobody looked" - opposite conclusions. Same argument as
 # min_depth riding on every row of the IRMA frame table.
 #
 # Computed AFTER the amino-acid annotation: distance is a property of the
@@ -695,7 +695,7 @@ if (n.src < nrow(final.data))
               nrow(final.data) - n.src))
 
 #############################################
-#### Call assessment — the FluLens verdict, stated in the table
+#### Call assessment - the FluLens verdict, stated in the table
 #############################################
 # The verdict is computed here, not in FluLens, so the table is the single source of
 # truth and the viewer reads it. Same reason af_type / allele_fraction are stated
@@ -785,7 +785,7 @@ if (nrow(lofreq.dp4)) {
              by = c("sample", "locus", "position"), all.x = TRUE, sort = FALSE)
 } else fd[, dp4_lo := NA_character_]
 # iVar rows read iVar's TSV (keyed by alt); LoFreq and GATK4 rows read LoFreq's
-# VCF at the position (GATK4 borrows it — same as FluLens strandRecOf).
+# VCF at the position (GATK4 borrows it - same as FluLens strandRecOf).
 fd[, dp4 := ifelse(method == "iVar", dp4_iv, dp4_lo)]
 fd[, c("dp4_iv", "dp4_lo") := NULL]
 
@@ -800,7 +800,7 @@ freqF  = ifelse(is.finite(fd$allele_fraction), fd$allele_fraction, fd$allele_fre
 depthN = suppressWarnings(as.numeric(fd$depth))
 have   = !is.na(fd$dp4)
 
-# strand class — the test order matters and matches assessCore.
+# strand class - the test order matters and matches assessCore.
 strand = rep("not-assessed", nrow(fd))
 if (run.strand.bias) {
   strand = ifelse(at < AS_STRAND_MIN_ALT, "too-few-alt",
@@ -828,7 +828,7 @@ fd$strand_class = strand
 fd$assessment   = c("Looks real", "Treat with caution",
                     "Likely artefact", "Cannot assess")[verdict + 1L]
 
-fd[, dp4 := NULL]   # internal only — its commas would break this unquoted CSV
+fd[, dp4 := NULL]   # internal only - its commas would break this unquoted CSV
 data.table::setorder(fd, .ord)
 fd[, .ord := NULL]
 # Restore the original column order (merge moved the keys to the front); new columns

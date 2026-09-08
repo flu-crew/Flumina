@@ -101,10 +101,18 @@ reference = flu_read_fasta(reference.path)
 # na.strings = "" is NOT optional here. The neuraminidase gene is called "NA",
 # so read.csv's default turns every neuraminidase row's `product` (and, once
 # the locus is shortened, its `locus`) into a missing value and the entire
-# segment silently disappears — 797 of 18,771 rows on the swine WGS data.
+# segment silently disappears - 797 of 18,771 rows on the swine WGS data.
 # outputSummary.R reads the amino-acid table with the same setting for exactly
 # this reason.
 vcf.data = read.csv(vcftable.path, header = TRUE, na.strings = "")
+# Sanitize all character columns to prevent "invalid multibyte string" errors in %dopar%
+for (col in names(vcf.data)) {
+  if (is.character(vcf.data[[col]])) {
+    vcf.data[[col]] = iconv(vcf.data[[col]], to = "UTF-8", sub = "")
+  } else if (is.factor(vcf.data[[col]])) {
+    vcf.data[[col]] = factor(iconv(as.character(vcf.data[[col]]), to = "UTF-8", sub = ""), levels = unique(iconv(levels(vcf.data[[col]]), to = "UTF-8", sub = "")))
+  }
+}
 sample.names = unique(vcf.data$sample)
 
 # Older variant tables have no `product` column. Rather than silently translate
@@ -121,7 +129,7 @@ if (!"product" %in% colnames(vcf.data)){
 # This is the correction that matters. The old code took codons straight out of
 # the segment at (aa_position-1)*3+1, which silently assumes the CDS is
 # contiguous and starts at nucleotide 1. For M2, NEP and PA-X it is neither, so
-# every codon it produced for those products was read out of the wrong place —
+# every codon it produced for those products was read out of the wrong place -
 # and past the end of M1 and NS1 it happily translated through the stop codon
 # and returned a plausible-looking amino acid for a residue that does not exist.
 # Indexing into the spliced CDS instead makes the junction a non-event.
@@ -170,7 +178,7 @@ foreach::foreach(i = seq_along(sample.names), .packages = c("foreach", "seqinr",
     for (k in 1:nrow(gene.data)){
 
       #A position in no coding region has no codon. Leave it "NA" rather than
-      #inventing one — this is exactly the case the old code got wrong.
+      #inventing one - this is exactly the case the old code got wrong.
       cds.pos = gene.data$cds_position[k]
       aa.pos  = gene.data$aa_position[k]
       if (is.na(cds.pos) || is.na(aa.pos)) next
@@ -227,11 +235,11 @@ aa.sample = list.files(paste0(output.directory, "/aa_db"))
 #combines all the individual samples together
 all.samples = c()
 # Samples whose calls survive but which have no row in the metadata CSV. Kept
-# and reported rather than dropped — see the merge below.
+# and reported rather than dropped - see the merge below.
 samples.without.metadata = c()
 for (i in seq_along(aa.sample)){
   
-  # na.strings = "" again — see the note above; "NA" is a gene name here
+  # na.strings = "" again - see the note above; "NA" is a gene name here
   sample.data = read.csv(paste0(output.directory, "/aa_db/", aa.sample[i]),
                          header = TRUE, sep = ",", na.strings = "")
   
@@ -240,7 +248,7 @@ for (i in seq_along(aa.sample)){
     # LEFT join (all.x = TRUE), not merge()'s default INNER one.
     #
     # With all = FALSE a sample missing from the metadata CSV produced a
-    # zero-row result and contributed NOTHING to all.samples — every call it
+    # zero-row result and contributed NOTHING to all.samples - every call it
     # had, discarded, with nothing printed. On the swine WGS run that removed
     # MC-495 entirely: 318 calls, every one at depth >= 100 and quality >= 30,
     # max depth 17,998. Nothing else in the pipeline objected to that sample;
@@ -250,7 +258,7 @@ for (i in seq_along(aa.sample)){
     #
     # A missing metadata ROW is a fact about the spreadsheet, not about the
     # sequencing, and it must not decide whether a sample's variants exist.
-    # Keep the calls, leave the metadata columns NA, and say so afterwards —
+    # Keep the calls, leave the metadata columns NA, and say so afterwards -
     # NA metadata is visible, a missing sample is not.
     if (nrow(sample.data) > 0 && !(sample.data$sample[1] %in% meta.sample$Sample)){
       samples.without.metadata = c(samples.without.metadata, sample.data$sample[1])
@@ -265,7 +273,7 @@ for (i in seq_along(aa.sample)){
 }#end i loop
 
 # Said once, loudly. These samples keep every call and carry NA metadata, which
-# means any downstream grouping by a metadata column will exclude them — that is
+# means any downstream grouping by a metadata column will exclude them - that is
 # a defensible outcome, but only if it is a known one.
 if (length(samples.without.metadata) > 0){
   cat(sprintf("METADATA: %d sample(s) have no row in %s and were kept with NA metadata: %s\n",

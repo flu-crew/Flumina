@@ -96,11 +96,11 @@ check_codon <- function(seq.str, pos, type = "start", label = "") {
 #############################################
 #### GTF entry builders
 ####
-#### The CDS intervals come from Scripts/fluORFs.R — the same function the
+#### The CDS intervals come from Scripts/fluORFs.R - the same function the
 #### variant pipeline uses to turn a nucleotide position into an amino-acid
 #### position. They used to be written out twice, here and there, with a comment
 #### asking whoever edited one to remember the other. They diverged: fluORFs
-#### gained stop-codon trimming (NS1 and PA-X have strain-variable C-termini —
+#### gained stop-codon trimming (NS1 and PA-X have strain-variable C-termini -
 #### 219 vs 230 aa and 232 vs 252 aa between the H3N2 and H5N1 references) and
 #### this file did not. One source now, so it cannot happen again.
 #############################################
@@ -111,7 +111,7 @@ make_gtf_entries <- function(seqname, seq.len, seg.type, seq.str) {
 
   if (is.na(seg.type)) {
     warning(paste0("Could not identify segment type for '", seqname,
-                   "' — writing single-CDS annotation."))
+                   "' - writing single-CDS annotation."))
   }
 
   orfs = flu_orfs_for(seqname, seq.str, seg.type)

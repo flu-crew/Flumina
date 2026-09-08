@@ -12,7 +12,7 @@
 ####     have a length divisible by three, contain no internal stop, and be
 ####     followed immediately by a stop codon. A wrong splice junction or a
 ####     wrong frame offset breaks at least one of those, which is what makes
-####     this worth running — the failure mode being guarded against is a
+####     this worth running - the failure mode being guarded against is a
 ####     coordinate that is plausible but off by one or two bases.
 ####
 ####  2. AGREEMENT WITH makeGTF.R. If a reference_gtf directory is supplied,

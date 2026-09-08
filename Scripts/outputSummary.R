@@ -30,7 +30,7 @@ for (line in lines) {
 aa.table.path = gsub("\"", "", config$AA_DB)
 
 # The curated database is optional. Everything this script produces is a join
-# against it, so with no database there is nothing to summarise — but the full
+# against it, so with no database there is nothing to summarise - but the full
 # variant table and the complete amino-acid table have already been written by
 # the earlier steps, and those are the substantive outputs. Stop cleanly rather
 # than failing the run over a file the user chose not to supply.
@@ -131,7 +131,7 @@ best.aa[is.na(best.aa) == TRUE] = "NA"
 #
 # Joining it against secondary products as well would add 22 "hits" on the
 # swine WGS data (MP 30/43/77 onto M2, NS 42/91/92/94 onto NEP). Every one is a
-# numeric coincidence, not a marker — so restrict the join to primary products.
+# numeric coincidence, not a marker - so restrict the join to primary products.
 #
 # A curated database that genuinely wants a secondary-product site can say so
 # by adding a `Product` column; when present it is matched against `product`

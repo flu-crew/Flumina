@@ -6,7 +6,7 @@
 #### reference already carries. Those are present in every sample by
 #### construction, so they say nothing about any sample. On the swine WGS run
 #### the reference alone accounts for 84 marker rows, and across 30 samples
-#### 2,514 of 2,515 reported rows were identical to it — one row in 2,515
+#### 2,514 of 2,515 reported rows were identical to it - one row in 2,515
 #### carried information.
 ####
 #### Usage:
@@ -72,7 +72,7 @@ if (!is.null(ref.markers))   wr(ref.markers,   file.path(outdir, "reference_mark
 if (!is.null(ref.mutations)) wr(ref.mutations, file.path(outdir, "reference_mutations.tsv"))
 
 #############################################
-#### markers.tsv — drop rows the reference also has
+#### markers.tsv - drop rows the reference also has
 #############################################
 # Long format: Sample | Marker | Mutations in your sample | Effect | Subtype | Literature
 # The key is the whole row EXCEPT Sample and Literature. "Mutations in your
@@ -116,13 +116,13 @@ if (!is.null(markers) && nrow(markers) > 0) {
 }
 
 #############################################
-#### mutations.tsv — drop columns no sample varies at
+#### mutations.tsv - drop columns no sample varies at
 #############################################
 # Wide format: Sample | <one column per mutation>, cell = the residue found.
 #
 # A column is dropped only when EVERY sample carries the reference residue.
 # Dropping by "the reference has this marker" instead would discard reversions,
-# which is the one thing markers.tsv can never show — a sample that LOSES a
+# which is the one thing markers.tsv can never show - a sample that LOSES a
 # reference marker simply produces no marker row, so the wide table is the only
 # place that signal exists. On the swine WGS run this rule cut 59 columns to 4,
 # and one of the four was exactly such a reversion (NA-1:S364N, reference N,

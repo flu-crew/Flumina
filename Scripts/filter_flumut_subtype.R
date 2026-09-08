@@ -3,9 +3,9 @@
 #### Drop FluMut HA/NA markers when the reference's subtype does not match the
 #### one those markers are numbered for.
 ####
-#### FluMut is an H5N1 tool. Its database is broader than that label suggests —
+#### FluMut is an H5N1 tool. Its database is broader than that label suggests -
 #### on the swine H3N2 run the 69 retained markers carried 16 subtype labels and
-#### only 19 were H5N1 — so blanket-refusing to run it off-subtype throws away
+#### only 19 were H5N1 - so blanket-refusing to run it off-subtype throws away
 #### most of its value. The internal genes are the value: PB2, PB1, PA, NP and
 #### NS markers are subtype-agnostic biology (PB2:K702R raises polymerase
 #### activity in mammalian cells whatever the HA is), and they were 50 of those
@@ -16,22 +16,22 @@
 #### compound off-subtype. H3 and H5 HA1 differ in length and alignment, so
 #### position 139 in one is not position 139 in the other. And the two have
 #### diverged far enough that even a correctly mapped residue need not carry the
-#### same meaning — a substitution that shifts receptor binding in H5 may do
+#### same meaning - a substitution that shifts receptor binding in H5 may do
 #### nothing, or something else, in H3.
 ####
 #### Filter on the PROTEIN PREFIX, never the Subtype column. Subtype records
 #### which virus a finding was published in, not which numbering the position
 #### uses: PB2:K702R is labelled H5N1 and is entirely valid on swine.
 ####
-#### Subtype comes from segment names — A_HA_H3 / A_NA_N2 on the swine reference,
-#### A_HA_H5 on the cow data — from TWO sources, in this order:
+#### Subtype comes from segment names - A_HA_H3 / A_NA_N2 on the swine reference,
+#### A_HA_H5 on the cow data - from TWO sources, in this order:
 ####
 ####   1. the reference FASTA's own segment names, and
 ####   2. the IRMA consensus contigs, whose headers IRMA writes with the subtype
 ####      it assigned (>A_HA_H5, >A_NA_N1), aggregated across samples.
 ####
 #### The second exists because a bare A_HA is unconfirmable, unconfirmed counts
-#### as a mismatch, and the repo's OWN reference.fa is bare — so the conservative
+#### as a mismatch, and the repo's OWN reference.fa is bare - so the conservative
 #### branch was the common case rather than a corner one. It was also actively
 #### wrong on the bundled test_dataset: those four samples are H5N1 (IRMA calls
 #### every one A_HA_H5 / A_NA_N1) and their HA/NA markers were being dropped on
@@ -39,7 +39,7 @@
 ####
 #### The reference still WINS when it states a subtype, because that is an
 #### explicit claim about the exact sequence FLUMUT_LOWFREQ screens in reference
-#### coordinates. IRMA fills the gap only where the reference is silent — so this
+#### coordinates. IRMA fills the gap only where the reference is silent - so this
 #### is purely additive and cannot change a run that already resolved. Where the
 #### two disagree nothing is silently reconciled: it is reported, because reads
 #### assembling to a different subtype than the reference they were mapped to is
@@ -123,7 +123,7 @@ resolve <- function(ref, irma, gene) {
     return(list(value = irma$call,
                 source = sprintf("IRMA consensus, %d of %d sample(s)", irma$n, irma$files)))
   if (!is.null(irma$tab) && irma$n > 0)
-    cat(sprintf("  %s: no majority across IRMA consensus (%s) — treated as unconfirmed\n",
+    cat(sprintf("  %s: no majority across IRMA consensus (%s) - treated as unconfirmed\n",
                 gene, paste(names(irma$tab), irma$tab, sep = "=", collapse = " ")),
         file = stderr())
   list(value = NA_character_, source = "unconfirmed")
@@ -147,7 +147,7 @@ cat(sprintf("  subtype source: HA from %s, NA from %s\n", ha.r$source, na.r$sour
 #
 # FluLens carries its own refSubtype() applying "the same rule" against the
 # reference names, and duplicated rules are exactly how this project has been
-# bitten before — stats.multi disagreed with the panel it was meant to match for
+# bitten before - stats.multi disagreed with the panel it was meant to match for
 # weeks because only one copy got fixed. The moment this script gained a second
 # source, that copy became WRONG rather than merely duplicated: a bare-named
 # H5N1 run now keeps its HA/NA markers here while FluLens would still call them
@@ -169,7 +169,7 @@ write.table(
 
 # Only NOW does an absent markers.tsv end the run. The subtype is a property of
 # the RUN, not of whether FluMut happened to find anything, and this check used
-# to sit at the top — which would have skipped writing the file in exactly the
+# to sit at the top - which would have skipped writing the file in exactly the
 # cases where a reader most needs to know the screen was attempted.
 if (!file.exists(markers.path) || file.info(markers.path)$size == 0) {
   cat("No markers to filter.\n", file = stderr()); quit(status = 0)
@@ -191,7 +191,7 @@ if (!any(drop)) {
   cat("  nothing to drop\n", file = stderr()); quit(status = 0)
 }
 if (keep) {
-  cat("  FLUMUT_KEEP_MISMATCHED_HA_NA is set — kept, but they are numbered for a\n",
+  cat("  FLUMUT_KEEP_MISMATCHED_HA_NA is set - kept, but they are numbered for a\n",
       "  different subtype and should not be read as confirmed.\n", sep = "", file = stderr())
   quit(status = 0)
 }

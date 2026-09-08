@@ -17,7 +17,7 @@
 ####
 #### Painting onto the reference removes the mismatch instead of correcting it.
 #### It is sound because flumut_freq_threshold defaults to 0.01, so majority
-#### variants are applied too — reference + LoFreq reconstructs the sample's own
+#### variants are applied too - reference + LoFreq reconstructs the sample's own
 #### background. Verified: it reproduces the IRMA consensus exactly in 1,075 of
 #### 1,084 comparable records (99.2%).
 ####
@@ -25,7 +25,7 @@
 #### needed and de novo assembly is the more robust choice for divergent
 #### samples. Only this low-frequency step moves.
 ####
-#### NO-COVERAGE POSITIONS ARE COUNTED AND REPORTED, NOT MASKED — 2026-08-08.
+#### NO-COVERAGE POSITIONS ARE COUNTED AND REPORTED, NOT MASKED - 2026-08-08.
 ####
 #### The residual this addresses is real: where a sample has no reads, a
 #### reference base stands in for no data, FluMut screens it, and "no marker
@@ -33,7 +33,7 @@
 ####
 #### **Writing N there was built, measured, and rejected.** On MC-696 (166
 #### uncovered positions in NA) it suppressed 6 markers correctly and
-#### MANUFACTURED 3 that were not there — NA-1:I222K, NA-1:I223K, NA-1:Q136R —
+#### MANUFACTURED 3 that were not there - NA-1:I222K, NA-1:I223K, NA-1:Q136R -
 #### because a heavily masked segment perturbs FluMut's own alignment and shifts
 #### which residue it reads at each numbered position. Verified on one sample in
 #### isolation, so it is not a cross-sample table artefact. Masking with "-"
@@ -42,13 +42,13 @@
 ####
 #### Inventing a marker is a worse failure than reporting one on thin evidence,
 #### so the sequence is left exactly as it was. **Do not re-implement masking
-#### here** — it looks like the obvious fix and it is measurably not.
+#### here** - it looks like the obvious fix and it is measurably not.
 ####
 #### What happens instead: depth is read, the exposure is counted and logged, and
 #### DEPTH_PROFILE publishes the per-position depth so FluLens can flag markers
 #### resting on no coverage. That is the right place for it, because FluLens is
 #### the only component that maps FluMut's own numbering (HA1-5, NA-1, ...) back
-#### to reference positions — see calibrateFluMut() in its handoff. A per-marker
+#### to reference positions - see calibrateFluMut() in its handoff. A per-marker
 #### coverage check needs that mapping; this script does not have it.
 ####
 #### Depth comes from DEPTH_PROFILE (`samtools depth -a` on the reference-aligned
@@ -183,7 +183,7 @@ read_fasta = function(path) {
 # Same rule rename_for_flumut.R uses, because this writes FluMut-ready headers
 # itself. It has to: that script takes the sample name from the FILENAME, and the
 # low-frequency path hands it one combined mutated.fasta, so every record in every
-# sample came out named "mutated_HA", "mutated_NA" and so on — 200 records
+# sample came out named "mutated_HA", "mutated_NA" and so on - 200 records
 # collapsing to 8 names with sample identity gone entirely. A marker found that way
 # could never be attributed to a sample.
 normalise_segment <- function(raw) {
@@ -260,7 +260,7 @@ for (i in seq(1, length(pairs), by = 2)) {
     #
     # The counts go to the log and the depth files are published, so the
     # exposure is visible and FluLens can flag it against its own calibrated
-    # marker coordinates — which is where a per-marker coverage check belongs,
+    # marker coordinates - which is where a per-marker coverage check belongs,
     # because that is the only place FluMut's numbering is mapped back to
     # reference positions.
     dv = if (!is.null(depth)) depth$raw[[chrom]] else NULL
@@ -270,7 +270,7 @@ for (i in seq(1, length(pairs), by = 2)) {
       if (n > 0) {
         # Two questions, two depths. "Was there any read here at all" is a raw
         # question and stays on column 3. "Did a caller have enough to work
-        # with" is not — MIN_DEPTH is tested against the filtered count, so
+        # with" is not - MIN_DEPTH is tested against the filtered count, so
         # counting thin against column 3 understates the exposure. Falls back
         # to raw for three-column files, as this always did.
         masked = masked + sum(dv[seq_len(n)] == 0)
@@ -290,7 +290,7 @@ for (i in seq(1, length(pairs), by = 2)) {
   cat(sprintf("  %s: %d variant(s) applied across %d segment(s)%s%s\n",
               sample_name, applied, emitted,
               if (oob > 0) sprintf(" [%d outside the reference, dropped]", oob) else "",
-              if (masked > 0) sprintf(" [%d position(s) with NO coverage — markers there rest on no data]", masked) else ""),
+              if (masked > 0) sprintf(" [%d position(s) with NO coverage - markers there rest on no data]", masked) else ""),
       file = stderr())
 }
 
@@ -315,7 +315,7 @@ if (use_depth) {
       file = stderr())
   cat("  Absence of a marker at those positions is NOT evidence of absence. They are\n",
       "  reported rather than masked because writing N into the sequence measurably\n",
-      "  MANUFACTURES markers — see the script header. Per-position depth is published\n",
+      "  MANUFACTURES markers - see the script header. Per-position depth is published\n",
       "  alongside the results for FluLens to flag against calibrated marker positions.\n",
       sep = "", file = stderr())
 }
