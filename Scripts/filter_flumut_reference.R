@@ -72,7 +72,7 @@ if (!is.null(ref.markers))   wr(ref.markers,   file.path(outdir, "reference_mark
 if (!is.null(ref.mutations)) wr(ref.mutations, file.path(outdir, "reference_mutations.tsv"))
 
 #############################################
-#### markers.tsv — drop rows the reference also has
+#### markers.tsv - drop rows the reference also has
 #############################################
 # Long format: Sample | Marker | Mutations in your sample | Effect | Subtype | Literature
 # The key is the whole row EXCEPT Sample and Literature. "Mutations in your
@@ -116,7 +116,7 @@ if (!is.null(markers) && nrow(markers) > 0) {
 }
 
 #############################################
-#### mutations.tsv — drop columns no sample varies at
+#### mutations.tsv - drop columns no sample varies at
 #############################################
 # Wide format: Sample | <one column per mutation>, cell = the residue found.
 #

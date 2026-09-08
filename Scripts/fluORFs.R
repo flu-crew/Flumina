@@ -13,12 +13,12 @@
 #### Anything that converts a nucleotide position into an amino-acid position
 #### has to go through these intervals. Doing it as ceiling(position/3) is
 #### correct ONLY for the eight primary products, and past the end of M1 and NS1
-#### it does not fail — it silently returns a plausible number for a codon that
+#### it does not fail - it silently returns a plausible number for a codon that
 #### does not exist, which is worse.
 ####
 #### This file is sourced by makeGTF.R (which writes these intervals out as GTF),
 #### convertVCFtoTable.R and findAAChanges.R so the three cannot drift apart.
-#### Base R only, and it derives everything from the reference FASTA — it does
+#### Base R only, and it derives everything from the reference FASTA - it does
 #### NOT read reference_gtf/, which is produced later in the pipeline by the
 #### optional SNPGenie step and is therefore not available when the variant
 #### table is built.
@@ -168,7 +168,7 @@ flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
 # the cut is then wrong.
 #
 # So: take the start and the splice sites from the canonical layout, and find
-# the end in the sequence itself — the first in-frame stop.
+# the end in the sequence itself - the first in-frame stop.
 flu_trim_to_stop <- function(seq.str, exons) {
   cds = paste(mapply(function(s, e) substr(seq.str, s, e), exons$start, exons$end),
               collapse = "")
@@ -239,7 +239,7 @@ flu_cds_seq <- function(orf, seq.str) {
 }
 
 # Minimal FASTA reader. Kept here so convertVCFtoTable.R kicks off no new
-# package dependency just to learn how long each segment is — its only
+# package dependency just to learn how long each segment is - its only
 # requirement stays data.table.
 flu_read_fasta <- function(path) {
   ln  = readLines(path)
@@ -268,7 +268,7 @@ flu_read_fasta <- function(path) {
 #   codon_position   1/2/3 within the codon
 #
 # By default a position that codes in two products yields TWO rows, one per
-# product — that is the only honest representation of overlapping reading
+# product - that is the only honest representation of overlapping reading
 # frames, and it is what makes M2, NEP, PA-X and PB1-F2 visible at all. With
 # primary.only = TRUE the table keeps exactly one row per input row, which is
 # what callers that key on (locus, position) need.

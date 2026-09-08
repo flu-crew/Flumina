@@ -263,7 +263,7 @@ for (i in seq_along(sample.names)) {
 
   dataset.names = list.dirs(paste0(samples.dir, "/", sample.names[i]),
                              recursive = FALSE, full.names = FALSE)
-  # Exclude the combined run — collected separately below
+  # Exclude the combined run - collected separately below
   dataset.names = dataset.names[nchar(dataset.names) > 0 & dataset.names != "combined"]
 
   for (j in seq_along(dataset.names)) {

@@ -61,7 +61,7 @@ output.directory = paste0(work.dir, "/wfabc_analysis")
 reference.path   = cfg("REFERENCE_FILE")
 metadata.file    = cfg("METADATA")
 
-# Shared influenza ORF definitions — the same ones convertVCFtoTable.R and
+# Shared influenza ORF definitions - the same ones convertVCFtoTable.R and
 # findAAChanges.R use. This script carries its own copy of their VCF-to-table
 # and codon-translation logic, so it needs the same correction.
 wfabc.script.dir = dirname(sub("^--file=", "",
@@ -203,7 +203,7 @@ for (i in seq_along(vcf.files)){
 
     # aa_position is filled in after the loop, from the real coding intervals
     # (Scripts/fluORFs.R). Unlike the main variant table this one stays at ONE
-    # ROW PER CALL — the trajectories below are keyed on locus + nucleotide
+    # ROW PER CALL - the trajectories below are keyed on locus + nucleotide
     # position, and expanding a position into two products would duplicate the
     # series. Only the PRIMARY product is annotated here.
     x = x + 1
@@ -377,8 +377,8 @@ for (i in seq_along(sample.names)){
       # not rows, so without it pos.data kept every row and an arbitrary subset
       # of columns: pos.data[[individual.column]] came back NULL and the
       # data.frame below died with "arguments imply differing number of rows:
-      # 0, 65". Every other subset in this file has the comma — 286, 355-357,
-      # 364, 370 — which is what makes this a typo rather than an intent.
+      # 0, 65". Every other subset in this file has the comma - 286, 355-357,
+      # 364, 370 - which is what makes this a typo rather than an intent.
       pos.data = locus.data[locus.data$position %in% pos.names[k], ]
 
       if (nrow(pos.data) <= 1){
@@ -402,7 +402,7 @@ for (i in seq_along(sample.names)){
           # aggregate's formula method applies na.omit across EVERY term, so one
           # NA in a grouping column drops the whole row. Since the spliced-ORF
           # correction, aa_position is legitimately NA wherever a call sits
-          # outside its segment's primary ORF — MP past the end of M1, NS past
+          # outside its segment's primary ORF - MP past the end of M1, NS past
           # NS1, and so on. 424 of 12,531 calls on the cow merged set. Where
           # such a position also had repeat time points, every row dropped and
           # aggregate died with "no rows to aggregate": measured at A_MP:909 in
@@ -415,7 +415,7 @@ for (i in seq_along(sample.names)){
           #
           # aa_position is functionally determined by (locus, nuc_position), so
           # dropping it from the grouping loses nothing and it is mapped back
-          # afterwards — NA included, because NA is the correct annotation there.
+          # afterwards - NA included, because NA is the correct annotation there.
           temp.df = aggregate(cbind(sample_size, A_allele) ~ sample+locus+nuc_position+group+time_point,
                               data = save.data, sum)
           temp.df$aa_position = save.data$aa_position[
@@ -690,7 +690,7 @@ write.table(save.data, paste0(output.directory, "/wfabc_summary.txt"),
 # The FIT (Feder, Kryazhimskiy & Plotkin 2014) answers the prior question:
 # is the trajectory distinguishable from DRIFT at all? The two are reported
 # side by side because they can disagree, and when they do the disagreement is
-# the finding — a large s_map whose credible interval spans zero and whose FIT
+# the finding - a large s_map whose credible interval spans zero and whose FIT
 # p-value is unremarkable is drift wearing a selection coefficient.
 #
 # Ported from analyze_drift.R (Cow_Comparison), generalised: no hardcoded paths
@@ -698,7 +698,7 @@ write.table(save.data, paste0(output.directory, "/wfabc_summary.txt"),
 # label. Column names are kept identical to that script's FIT_results.csv so
 # the two analyses stay directly comparable.
 #
-# It reads the per-site input.txt files WFABC already wrote — line 2 is the time
+# It reads the per-site input.txt files WFABC already wrote - line 2 is the time
 # points, line 3 the depths, line 4 the alt counts.
 fit.one = function(f, root){
   L = readLines(f, warn = FALSE)
@@ -733,7 +733,7 @@ if (length(traj.files)){
 }
 if (is.null(fit) || nrow(fit) == 0){
   print(paste0("FIT: no trajectory had 3+ time points (", length(traj.files),
-               " trajectories) — FIT_results.csv not written"))
+               " trajectories) - FIT_results.csv not written"))
 } else {
   fit$FIT_fdr = p.adjust(fit$FIT_p, "BH")
 

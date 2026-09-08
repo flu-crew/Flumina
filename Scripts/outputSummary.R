@@ -30,7 +30,7 @@ for (line in lines) {
 aa.table.path = gsub("\"", "", config$AA_DB)
 
 # The curated database is optional. Everything this script produces is a join
-# against it, so with no database there is nothing to summarise — but the full
+# against it, so with no database there is nothing to summarise - but the full
 # variant table and the complete amino-acid table have already been written by
 # the earlier steps, and those are the substantive outputs. Stop cleanly rather
 # than failing the run over a file the user chose not to supply.
