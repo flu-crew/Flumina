@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Join the depth that gets reported to the depth the callers actually see.
+"""Join reported depth with the depth visible to the callers.
 
 Two different numbers get called "depth" here:
 
@@ -9,13 +9,13 @@ Two different numbers get called "depth" here:
                  -q applied. What iVar's -m floor is actually tested against,
                  and well below the raw count.
 
-MIN_DEPTH was stated against the second while only the first was published, so
-positions could clear the floor on paper and be evaluated by no caller. This
-script reads the mpileup on stdin -- the SAME command IVAR is given, so the
+MIN_DEPTH was defined against the second value while only the first was
+published, so positions could clear the floor on paper and be evaluated by no
+caller. This script reads the mpileup on stdin—the same command iVar is given—so the
 count is the caller's quantity rather than a conversion -- and appends it to
 the raw file as a fourth column.
 
-Columns 1-3 pass through byte-for-byte. mpileup's own column 4 is NOT used for
+Columns 1–3 pass through byte-for-byte. mpileup's own column 4 is not used for
 them: it counts deletion placeholders where `samtools depth` does not, and
 swapping one for the other would move an already-published number.
 
@@ -84,9 +84,9 @@ def main():
     ap.add_argument('--out', required=True, help='output path, or - for stdout')
     args = ap.parse_args()
 
-    # Read into memory rather than streamed alongside the raw file: pairing the
-    # two line by line would turn any future divergence into a silent
-    # off-by-one instead of an error. One flu genome is ~13k positions.
+    # Read the pileup into memory instead of streaming it alongside the raw file.
+    # Pairing the files line by line would turn a future divergence into a silent
+    # off-by-one error. A flu genome contains approximately 13,000 positions.
     seen = {}
     for line in sys.stdin:
         f = line.rstrip('\n').split('\t')
@@ -108,8 +108,8 @@ def main():
                     continue
                 vis = seen.get((f[0], f[1]))
                 if vis is None:
-                    # Never fabricate a 0 here: it would read as "no usable
-                    # coverage" rather than as the bug it is.
+                    # Do not fabricate zero: it would be interpreted as no usable
+                    # coverage rather than as a missing pileup row.
                     missing += 1
                     if missing <= 5:
                         print(f'visible_depth: no pileup row for {f[0]}:{f[1]}',

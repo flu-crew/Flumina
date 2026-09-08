@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """flumut_position_map.py
 
-Emit the mapping from FluMut's marker numbering onto THIS run's reference
+Emit the mapping from FluMut's marker numbering onto this run's reference
 coordinates, so downstream readers join markers to variants by lookup instead of
 inferring an offset.
 
@@ -13,14 +13,14 @@ residue 224 falls in the reference a given run was mapped against. Downstream
 this was being recovered by searching for a constant shift that put every
 marker's residue onto the translated reference, which fails in two ways:
 
-  * it needs several markers per protein to pin a shift down, so small proteins
+  * it requires several markers per protein to estimate a shift, so small proteins
     (M2, PB1-F2, NS-2) never resolve at all; and
-  * a constant shift is only correct when the two proteins are colinear. HA and
+  * a constant shift is correct only when the two proteins are colinear. HA and
     NA have diverged by INDELS between subtypes, so no single offset is right
     across the protein -- on an H3N2 run the best shift for HA1 explained 8 of
     14 markers, which is neither a fit nor a clean failure.
 
-Both problems disappear here. FluMut ships its reference sequences and their CDS
+Both problems are avoided here. FluMut ships its reference sequences and their CDS
 annotations in flumut_db.sqlite, so the mapping is a fact to be read and aligned,
 not a parameter to be estimated. Aligning protein-to-protein handles the indels,
 which is what makes HA and NA work across subtypes rather than only on H5N1.
@@ -68,9 +68,9 @@ def short_locus(x):
     return re.sub(r'_[A-Z][0-9]+$', '', re.sub(r'^A_', '', str(x or '')))
 
 
-# FluMut protein -> product name in our GTF. FluMut splits HA into its two mature
-# subunits and numbers each from 1; our GTF has one HA ORF, so both map onto it
-# and the alignment is what places them.
+# Map each FluMut protein to its product name in the GTF. FluMut splits HA into
+# two mature subunits and numbers each from 1; the GTF has one HA ORF, so both
+# subunits map to it and alignment determines their positions.
 PRODUCT = {'HA1': 'HA', 'HA2': 'HA', 'NA': 'NA', 'NS-1': 'NS1', 'NS-2': 'NEP',
            'M1': 'M1', 'M2': 'M2', 'NP': 'NP', 'PA': 'PA', 'PA-X': 'PA-X',
            'PB1': 'PB1', 'PB1-F2': 'PB1-F2', 'PB2': 'PB2'}
@@ -199,10 +199,10 @@ def align(our_seq, fm_seq):
     aligner.open_gap_score = -11
     aligner.extend_gap_score = -1
     aligner.mode = 'global'
-    # Free end gaps on OUR sequence (Biopython >= 1.86 spelling; the pinned image
-    # supplies it). Assign, never probe: READING this attribute raises ValueError
-    # whenever the open and extend end-gap scores differ, as they do here, so
-    # hasattr() would throw before aligning anything.
+    # Configure free end gaps on this sequence (Biopython >= 1.86 spelling; the
+    # pinned image supplies it). Assign rather than probe: reading this attribute
+    # raises ValueError when the open and extend scores differ, as they do here,
+    # so hasattr() would fail before alignment begins.
     aligner.end_insertion_score = 0.0
 
     best = aligner.align(our_seq, fm_seq)[0]

@@ -8,20 +8,19 @@
 ####
 ####
 ####
-####
 #### Usage:
 ####   Rscript filter_flumut_reference.R <ref_markers> <ref_mutations> \
 ####       <markers> <mutations> <literature> <outdir>
 ####
-#### Writes into <outdir>:
-####   markers.tsv        sample rows the reference does NOT have
+#### Write the following files to <outdir>:
+####   markers.tsv        sample rows not present in the reference
 ####   mutations.tsv      columns where at least one sample differs from the reference
 ####   literature.tsv     literature for the retained markers
 ####   *_all.tsv          the unfiltered originals, always kept
-####   reference_*.tsv    what the reference itself carries, so a removal can
-####                      always be explained
+####   reference_*.tsv    markers carried by the reference, so each removal is
+####                      traceable
 ####
-#### Nothing is destroyed: every input is preserved under *_all.tsv.
+#### Preserve every input under *_all.tsv.
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 6) {
@@ -38,18 +37,14 @@ outdir          <- args[6]
 
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
 
-# (Details of an unpublished run were removed here.)
+# `colClasses = "character"` is required for correctness. These tables contain
+# residues and names, but read.table still infers a type for each column. Because
+# the reference tables contain one row, a column containing only "T" or "F" can
+# be inferred as logical and written as TRUE/FALSE.
 #
-#
-#
-#
-#
-#
-# It also silently breaks the invariance test below: rv becomes "TRUE" while the
-# samples say "T", so `all(sv == rv)` is never true and the column is kept as
-# informative even when every sample matches the reference. That has not changed
-# a result yet -- on this run all 8 columns vary on their own merits -- but it is
-# a live trap the moment a T/F column is genuinely invariant.
+# This also breaks the invariance test below: `rv` becomes "TRUE" while samples
+# contain "T", so `all(sv == rv)` is never true and an invariant column is kept as
+# informative.
 rd <- function(p) {
   if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
   read.table(p, sep = "\t", header = TRUE, quote = "", comment.char = "",
@@ -64,7 +59,7 @@ markers       <- rd(markers.p)
 mutations     <- rd(mutations.p)
 literature    <- rd(literature.p)
 
-# Preserve the originals first, unconditionally.
+# Preserve the original files before filtering.
 if (!is.null(markers))    wr(markers,    file.path(outdir, "markers_all.tsv"))
 if (!is.null(mutations))  wr(mutations,  file.path(outdir, "mutations_all.tsv"))
 if (!is.null(literature)) wr(literature, file.path(outdir, "literature_all.tsv"))
@@ -72,11 +67,11 @@ if (!is.null(ref.markers))   wr(ref.markers,   file.path(outdir, "reference_mark
 if (!is.null(ref.mutations)) wr(ref.mutations, file.path(outdir, "reference_mutations.tsv"))
 
 #############################################
-#### markers.tsv - drop rows the reference also has
+#### markers.tsv — remove rows also present in the reference
 #############################################
 # Long format: Sample | Marker | Mutations in your sample | Effect | Subtype | Literature
-# The key is the whole row EXCEPT Sample and Literature. "Mutations in your
-# sample" is included on purpose: under --relaxed a marker can be reported from
+# The key is the complete row except Sample and Literature. "Mutations in your
+# sample" is included because under --relaxed a marker can be reported from
 # a partial match, and a sample matching more mutations than the reference did
 # is a different finding even though the Marker string is the same.
 if (!is.null(markers) && nrow(markers) > 0) {
@@ -99,7 +94,7 @@ if (!is.null(markers) && nrow(markers) > 0) {
   cat(sprintf("markers.tsv:   %d rows -> %d (%d shared with the reference removed)\n",
               nrow(markers), nrow(out.markers), sum(!keep)))
 
-  # literature.tsv follows whichever markers survived
+  # literature.tsv follows the markers that survived filtering.
   if (!is.null(literature) && nrow(literature) > 0) {
     lit.key <- intersect(c("Marker", "Effect", "Subtype"), colnames(literature))
     if (length(lit.key) > 0 && all(lit.key %in% colnames(out.markers))) {
@@ -116,7 +111,7 @@ if (!is.null(markers) && nrow(markers) > 0) {
 }
 
 #############################################
-#### mutations.tsv - drop columns no sample varies at
+#### mutations.tsv — remove columns with no sample-level variation
 #############################################
 # Wide format: Sample | <one column per mutation>, cell = the residue found.
 #
@@ -137,8 +132,8 @@ if (!is.null(mutations) && nrow(mutations) > 0) {
       if (!cl %in% colnames(ref.row)) return(TRUE)   # reference never saw it: keep
       rv <- as.character(ref.row[[cl]])
       sv <- unique(as.character(mutations[[cl]]))
-      # (Details of an unpublished run were removed here.)
-      #
+# (Details of an unpublished run were removed here.)
+#
       #
       #
       #

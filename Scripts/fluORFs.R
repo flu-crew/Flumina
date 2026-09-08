@@ -1,6 +1,6 @@
 #### fluORFs.R
 ####
-#### Single source of truth for influenza A open reading frames.
+#### Single source of truth for influenza A open reading frame definitions.
 ####
 #### Eight segments encode twelve proteins. Four of them are not a simple
 #### "translate from nucleotide 1 in frame 1":
@@ -10,16 +10,16 @@
 ####   PA-X    ribosomal slippage, exon1 1-570, exon2 572-697
 ####   PB1-F2  starts at nucleotide 95, in a different reading frame
 ####
-#### Anything that converts a nucleotide position into an amino-acid position
-#### has to go through these intervals. Doing it as ceiling(position/3) is
-#### correct ONLY for the eight primary products, and past the end of M1 and NS1
-#### it does not fail - it silently returns a plausible number for a codon that
-#### does not exist, which is worse.
+#### Any code that converts a nucleotide position into an amino-acid position
+#### must use these intervals. `ceiling(position/3)` is correct only for the eight
+#### primary products. Beyond the ends of M1 and NS1, it returns a plausible
+#### number for a nonexistent codon instead of raising an error.
 ####
 #### This file is sourced by makeGTF.R (which writes these intervals out as GTF),
-#### convertVCFtoTable.R and findAAChanges.R so the three cannot drift apart.
-#### Base R only, and it derives everything from the reference FASTA - it does
-#### NOT read reference_gtf/, which is produced later in the pipeline by the
+#### convertVCFtoTable.R, and findAAChanges.R, so their definitions remain
+#### consistent. The implementation uses base R only and derives all coordinates
+#### from the reference FASTA. It does not read reference_gtf/, which is produced
+#### later in the pipeline by the
 #### optional SNPGenie step and is therefore not available when the variant
 #### table is built.
 
@@ -41,7 +41,7 @@ flu_segment_type <- function(name) {
   return(NA)
 }
 
-# The product a segment is conventionally named for. Variants are reported
+# Return the conventional primary product name for a segment. Variants are reported
 # against this one by default, which is what keeps `locus`-keyed joins (the
 # curated database, outputSummary.R) behaving exactly as they did before.
 flu_primary_product <- function(seg.type) {
@@ -51,7 +51,7 @@ flu_primary_product <- function(seg.type) {
 }
 
 # Proportionally scale a canonical coordinate to a different sequence length.
-# Same helper makeGTF.R uses; internal ORF coordinates are only meaningful
+# This is the same helper used by makeGTF.R; internal ORF coordinates are meaningful
 # relative to the canonical reference they were measured on.
 flu_scale_pos <- function(pos, canonical_len, actual_len) {
   round(pos * actual_len / canonical_len)
@@ -65,7 +65,7 @@ flu_scale_pos <- function(pos, canonical_len, actual_len) {
 #
 # Each element of the returned list is:
 #   gene     product name (HA, M1, M2, NS1, NEP, PA, PA-X, PB1, PB1-F2, ...)
-#   exons    data.frame(start, end) in SEGMENT coordinates, in translation order
+#   exons    data.frame(start, end) in segment coordinates, in translation order
 #   primary  TRUE for the segment's principal product
 #
 # Coordinates exclude the stop codon, matching the GTF convention makeGTF.R
@@ -79,13 +79,13 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
   ex <- function(starts, ends) data.frame(start = as.integer(starts),
                                           end   = as.integer(ends))
 
-  # ---- single-ORF segments: HA, NA, NP, PB2 (and anything unrecognised) ----
+  # ---- Single-ORF segments: HA, NA, NP, PB2, and unrecognized segments. ----
   if (seg.type %in% c("HA", "NA", "NP", "PB2", "UNKNOWN")) {
     gene = if (seg.type == "UNKNOWN") seq.name else seg.type
     return(list(list(gene = gene, exons = ex(1, seq.len - 3), primary = TRUE)))
   }
 
-  # ---- PB1 + PB1-F2 (canonical length 2274) ----
+  # ---- PB1 and PB1-F2 (canonical length 2274). ----
   if (seg.type == "PB1") {
     cl = 2274
     return(list(
@@ -97,7 +97,7 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
     ))
   }
 
-  # ---- PA + PA-X (canonical length 2151) ----
+  # ---- PA and PA-X (canonical length 2151). ----
   if (seg.type == "PA") {
     cl = 2151
     return(list(
@@ -109,7 +109,7 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
     ))
   }
 
-  # ---- MP: M1 unspliced + M2 spliced (canonical length 982) ----
+  # ---- MP: unspliced M1 and spliced M2 (canonical length 982). ----
   if (seg.type == "MP") {
     cl = 982
     return(list(
@@ -121,7 +121,7 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
     ))
   }
 
-  # ---- NS: NS1 unspliced + NEP/NS2 spliced (canonical length 838) ----
+  # ---- NS: unspliced NS1 and spliced NEP/NS2 (canonical length 838). ----
   if (seg.type == "NS") {
     cl = 838
     return(list(
@@ -136,7 +136,7 @@ flu_orfs <- function(seq.name, seq.len, seg.type = NULL, seq.str = NULL) {
   list(list(gene = seq.name, exons = ex(1, seq.len - 3), primary = TRUE))
 }
 
-# Wrapper: build the canonical layout, then pull every CDS end back to the first
+# Build the canonical layout, then move each CDS end to the first
 # in-frame stop when the sequence is available. Callers that have the reference
 # should always pass it.
 flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
@@ -144,10 +144,11 @@ flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
   orfs = flu_orfs(seq.name, n, seg.type)
   lapply(orfs, function(o) {
     ex = o$exons
-    # Run the LAST exon out to the end of the segment before trimming, so the
+    # Extend the last exon to the end of the segment before trimming, so the
     # stop search can extend as well as shorten. The canonical end is only a
-    # starting guess: NS1 needed extending 657 -> 690 on the H5N1 reference and
-    # shortening on others. Trimming alone silently kept the short answer.
+    # starting guess: NS1 required extension from 657 to 690 on the H5N1
+    # reference and shortening on other references. Trimming alone retained the
+    # shorter endpoint.
     ex$end[nrow(ex)] = n
     o$exons = flu_trim_to_stop(seq.str, ex)
     o
@@ -158,8 +159,8 @@ flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
 #### Trimming CDS ends to the real stop codon
 #############################################
 
-# The canonical coordinates give the START of each product and its splice
-# donor/acceptor sites, which are structurally conserved. They do NOT reliably
+# The canonical coordinates provide the start of each product and its splice
+# donor/acceptor sites, which are structurally conserved. They do not reliably
 # give the END: NS1 and PA-X have strain-variable C-terminal lengths that are
 # not proportional to segment length. Both the swine H3N2 and cow H5N1
 # references have an 838 nt NS segment, yet NS1 is 219 aa in one and 230 in the
@@ -167,8 +168,8 @@ flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
 # Scaling the canonical end truncates the protein and every codon number past
 # the cut is then wrong.
 #
-# So: take the start and the splice sites from the canonical layout, and find
-# the end in the sequence itself - the first in-frame stop.
+# Use the start and splice sites from the canonical layout, and find the end in
+# the sequence itself by locating the first in-frame stop codon.
 flu_trim_to_stop <- function(seq.str, exons) {
   cds = paste(mapply(function(s, e) substr(seq.str, s, e), exons$start, exons$end),
               collapse = "")
@@ -207,9 +208,9 @@ flu_cds_length <- function(orf) sum(orf$exons$end - orf$exons$start + 1L)
 
 # Map SEGMENT nucleotide positions onto one product's coding sequence.
 # Returns a data.frame with one row per input position:
-#   cds_position    1-based index into the spliced CDS, NA if outside it
-#   aa_position     codon index, NA if outside
-#   codon_position  1/2/3 within the codon, NA if outside
+#   cds_position    1-based index into the spliced CDS; NA if outside it
+#   aa_position     codon index; NA if outside
+#   codon_position  1/2/3 within the codon; NA if outside
 flu_map_positions <- function(orf, pos) {
   pos    = as.integer(pos)
   exons  = orf$exons

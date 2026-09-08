@@ -2,17 +2,18 @@
 #
 # Example cluster job script for running Flumina — command-line arguments version.
 #
-# This is the FAST mode. Nextflow runs here, in this small job, and submits every
+# This is the fast mode. Nextflow runs in this small job and submits each
 # pipeline step as its own SLURM job — so independent samples and independent
 # steps run at the same time instead of one after another. With 100 samples the
-# per-sample chain runs ~100-wide, which is where Flumina's speed comes from.
+# per-sample chain can run approximately 100-wide, which provides the throughput.
 #
 # Each of those submitted jobs runs inside the Flumina Apptainer container, so
 # you still get exactly one pinned software environment. Nextflow itself has to
 # run on the host rather than in the container, because it submits work with
 # sbatch and that binary is not inside the image.
 #
-# This job is deliberately TINY — 2 cores is plenty. It spends its life waiting
+# This job is intentionally small; 2 cores are sufficient. It spends most of its
+# time waiting
 # on the jobs it submits, so do not request a big node for it, and do give it a
 # long wall time, since it must outlive everything it launches.
 #
@@ -46,7 +47,7 @@
 #     #PBS -m abe
 #     #PBS -M your.email@example.com
 #
-# Two differences that catch people out: PBS starts the job in your HOME rather
+# Two differences are important: PBS starts the job in your home directory rather
 # than where you submitted from, and the job id is $PBS_JOBID, not
 # $SLURM_JOB_ID. Both are handled just below. The flumina command is identical.
 # ----------------------------------------------------------------------------
@@ -77,8 +78,8 @@ OUTPUT="Flumina_results"
 # able to see it. If you already submit from fast scratch, delete these two
 # lines and let it default to ./work alongside your results.
 #
-# Deliberately NOT scoped to the job id: the work directory IS the resume cache,
-# so a per-job path would silently make -R useless — every resubmission would
+# Do not scope this path to the job ID: the work directory is the resume cache,
+# so a per-job path would make -R ineffective and every resubmission would
 # start from an empty directory and redo everything. Naming it after the output
 # keeps resume working across submissions while still separating unrelated runs.
 WORKDIR="/scratch/${USER}/flumina_work/$(basename "$OUTPUT")"
@@ -89,12 +90,12 @@ WORKDIR="/scratch/${USER}/flumina_work/$(basename "$OUTPUT")"
 PROFILE="slurm,apptainer"
 
 # Scheduler settings for the jobs Flumina submits. These are the flu-crew
-# defaults and WILL be rejected on any other cluster — change them. The account
+# defaults and may be rejected on another cluster; change them as needed. The account
 # string is passed through untouched, so use your scheduler's own syntax.
 QUEUE="priority"
 ACCOUNT="--qos=vpru -A nadc_iav"
 
-# How many jobs to keep in flight at once. This is the main throughput dial:
+# Maximum number of jobs in flight. This is the primary throughput control:
 # raise it to go wider if your allocation allows, lower it to be a better
 # neighbour on a busy shared queue.
 MAX_JOBS=100
@@ -128,7 +129,7 @@ flumina --version
 #### Run Flumina
 #############################################
 
-# The PROFILE set above is what makes this parallel: the scheduler half submits
+# The PROFILE above enables parallel execution: the scheduler submits
 # each step as its own job, `apptainer` runs each of those inside the container.
 # Nextflow converts the image once into a shared cache before launching
 # anything, so the submitted jobs do not each race to build their own copy.
@@ -146,8 +147,8 @@ flumina \
     -t "$THREADS_PER_STEP" \
     -M "$MEMORY_PER_STEP"
 
-# Nextflow keeps every intermediate file in the work directory, so it is worth
-# reclaiming once you are done — but NOT automatically. Deleting it here throws
+# Nextflow keeps all intermediate files in the work directory. Reclaim the space
+# after completion, but not automatically: deleting it here removes
 # away the resume cache, so a run that fails at hour twenty has to start over
 # from nothing. Clear it by hand when you are satisfied with the results:
 #
@@ -196,5 +197,5 @@ date
 #         -w "$WORKDIR"
 #
 # Steps then run in parallel only up to the cores of that one node, so this is
-# considerably slower for large sample counts — but it needs nothing installed
+# considerably slower for large sample counts, but it requires no software beyond
 # beyond Apptainer.

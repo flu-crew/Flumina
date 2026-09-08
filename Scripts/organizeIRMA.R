@@ -1,12 +1,12 @@
 
-#Debegging
+# Debugging.
 
 args = commandArgs(trailingOnly = TRUE)
 
 # Function to read and parse configuration file
 lines <- readLines(args)
 
-#makes a list and loads stuff in with an equal sign
+# Parse key-value pairs into a named list.
 config <- list()
 for (line in lines) {
   line <- trimws(line)  # Remove leading and trailing whitespaces
@@ -17,12 +17,12 @@ for (line in lines) {
       value <- trimws(parts[2])
       config[[key]] <- value
     }# end if
-  }#end if
-}#end for
+  } # End of if block.
+} # End of for loop.
 
-#Define these
-#is.logical() on a character vector is ALWAYS FALSE, so OVERWRITE never took
-#effect. Parse the string to a real logical instead.
+# Define these parameters.
+# `is.logical()` on a character vector is always FALSE, so OVERWRITE would not
+# take effect. Parse the string as a logical value instead.
 overwrite.raw = gsub("\"", "", config$OVERWRITE)
 overwrite = length(overwrite.raw) > 0L &&
             toupper(trimws(overwrite.raw)) %in% c("TRUE", "T", "YES", "1")
@@ -30,11 +30,11 @@ irma.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA_results"
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA-consensus-contigs")
 
 
-#Quick checks
+# Perform basic validation.
 if (is.null(irma.directory) == TRUE){ stop("Please provide the read directory.") }
 if (file.exists(irma.directory) == F){ stop("read folder not found.") }
 
-# Sets directory and reads in  if (is.null(output.dir) == TRUE){ stop("Please provide an output directory.") }
+# Set the output directory and read the input files.
 if (dir.exists(output.directory) == F) {
   dir.create(output.directory)
 } else {
@@ -44,30 +44,30 @@ if (dir.exists(output.directory) == F) {
   }
 } # end else
 
-#Read in sample data
+# Read the sample data.
 sample.names = list.files(irma.directory, recursive = F, full.names = F)
 
-#Loops through each sample and  moves them to new directory
+# Iterate over samples and move their files to the destination directory.
 for (i in seq_along(sample.names)) {
   #################################################
-  ### Part A: prepare for loading and checks
+  ### Part A: prepare inputs and perform checks
   #################################################
-  #Gets the reads for the sample
+  # Locate the reads for the sample.
   sample.files = list.files(paste0(irma.directory, "/", sample.names[i]), full.names = T)
   fasta.files = sample.files[grep(".fasta$", sample.files)]
   
-  #Deletes directory if nothing was in there
+  # Remove the destination directory when it is empty.
   if (length(fasta.files) == 0){
     system(paste0("rm -rf ", irma.directory, "/", sample.names[i]))
     next
   } 
   
-  #check if file exists and overwrite
+  # Check whether the file exists and overwrite it when requested.
   if (file.exists(paste0(output.directory, "/", sample.names[i], ".fasta")) == TRUE){
     system(paste0("rm ", output.directory, "/", sample.names[i], ".fasta"))
   }
   
-  #concatenates all the fasta files
+  # Concatenate all FASTA files.
   system(paste0(
     "cat ", paste0(fasta.files, collapse = " "),
     " > ", output.directory, "/", sample.names[i], ".fasta"
@@ -77,4 +77,4 @@ for (i in seq_along(sample.names)) {
 
 
 
-# END SCRIPT
+# End of script.

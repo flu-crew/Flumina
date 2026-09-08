@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Which off-subtype HA/NA markers are actually untransferable, and which are
-only labelled that way?
+"""Identify which off-subtype HA/NA markers are untransferable and which are
+only labelled that way.
 
 FLUMUT_KEEP_MISMATCHED_HA_NA drops every HA/NA marker when the reference's
 subtype does not match FluMut's H5/N1 numbering. The case for that is real but
@@ -8,12 +8,12 @@ it is an average: FluMut's reference and this run's carry different wild-type
 residues at most HA1 positions, so a marker phrased as a deviation from the H5
 residue is being read against a protein that never had it.
 
-Per MARKER the answer is already known. flumut_position_map.tsv records, for
+The answer is known for each marker. flumut_position_map.tsv records, for
 every position it places, whether the two references carry the same residue. A
 marker sitting on an identical residue is a deviation from the same starting
 point, and its H5 provenance is a label rather than a confound.
 
-Reads a finished run and writes one row per dropped HA/NA marker with that
+Read a finished run and write one row per dropped HA/NA marker with that
 verdict, so the flag stops standing in for a judgement it cannot express.
 
 Rows are counted AFTER reference subtraction — markers_all.tsv minus
@@ -79,9 +79,9 @@ def main():
             fm_aa, ref_aa, ident = rec
             if ident == 'yes':
                 same += 1
-            # The marker's own wild-type should be FluMut's residue. When it is
-            # not, the marker is phrased against something other than the
-            # reference the map placed, and the verdict is worth less.
+            # The marker's wild-type should match FluMut's residue. When it does
+            # not, the marker is phrased against a different reference residue,
+            # so the verdict is less reliable.
             note = '' if wt == fm_aa else f'marker wild-type {wt}'
             recs.append((marker, tok, label, p, fm_aa, ref_aa, ident, n,
                          'yes' if marker in kept else 'no', note))
@@ -92,8 +92,8 @@ def main():
         for r in recs:
             fh.write('\t'.join(str(x) for x in r) + '\n')
 
-    # One row per COMPONENT, so a compound marker appears twice. Sample-rows are
-    # summed over distinct markers instead, or the compound ones count double.
+    # Write one row per component, so a compound marker appears twice. Sum sample
+    # rows over distinct markers to avoid double-counting compound markers.
     distinct = {r[0]: r[7] for r in recs}
     print(f'HA/NA after reference subtraction: {len(distinct)} distinct markers, '
           f'{sum(distinct.values())} sample-rows, {len(recs)} components')
