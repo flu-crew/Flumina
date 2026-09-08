@@ -1,12 +1,12 @@
 #### makeGTF.R
-#### Generates per-segment GTF annotation files from a reference FASTA for use
-#### with SNPGenie.  Identifies influenza A segment types from sequence names,
-#### verifies start/stop codon positions, and writes individual GTF files plus
-#### per-segment FASTAs.  A combined GTF is also written when the reference
+#### Generate per-segment GTF annotation files from a reference FASTA for use
+#### with SNPGenie. Identify influenza A segment types from sequence names,
+#### verify start/stop codon positions, and write individual GTF files plus
+#### per-segment FASTAs. A combined GTF is also written when the reference
 #### contains more than one segment.
 
 args = commandArgs(trailingOnly = TRUE)
-#args = "config.cfg"
+# args = "config.cfg"  # Use a local configuration file during development.
 
 # Parse configuration file
 lines <- readLines(args)
@@ -44,7 +44,7 @@ ref.seqs = readDNAStringSet(reference.path)
 # Delegates to fluORFs.R so the segment rules exist in exactly one place.
 get_segment_type <- function(name) flu_segment_type(name)
 
-# Standard product names for influenza A genes
+# Standard product names for influenza A genes.
 gene_product <- function(gene) {
   products = c(
     HA = "hemagglutinin",         "NA" = "neuraminidase",
@@ -58,14 +58,14 @@ gene_product <- function(gene) {
   return(gene)
 }
 
-# Assemble a single tab-delimited GTF row
+# Assemble a single tab-delimited GTF row.
 gtf_row <- function(seqname, feature, start, end,
                     frame = ".", strand = "+", attributes) {
   paste(seqname, ".", feature, start, end, ".", strand, frame,
         attributes, sep = "\t")
 }
 
-# Build a GTF attribute string from named key=value pairs
+# Build a GTF attribute string from named key-value pairs.
 attr_str <- function(...) {
   pairs = list(...)
   parts = mapply(function(k, v) paste0(k, ' "', v, '"'),
@@ -73,7 +73,7 @@ attr_str <- function(...) {
   paste(parts, collapse = "; ")
 }
 
-# Verify a codon in the sequence at a given 1-based position
+# Verify the codon at a given 1-based sequence position.
 check_codon <- function(seq.str, pos, type = "start", label = "") {
   if (pos < 1 || pos + 2 > nchar(seq.str)) {
     warning(paste0("  [", label, "] codon position ", pos, " out of range"))
@@ -96,13 +96,13 @@ check_codon <- function(seq.str, pos, type = "start", label = "") {
 #############################################
 #### GTF entry builders
 ####
-#### The CDS intervals come from Scripts/fluORFs.R - the same function the
+#### The CDS intervals come from Scripts/fluORFs.R, the same function the
 #### variant pipeline uses to turn a nucleotide position into an amino-acid
-#### position. They used to be written out twice, here and there, with a comment
-#### asking whoever edited one to remember the other. They diverged: fluORFs
-#### gained stop-codon trimming (NS1 and PA-X have strain-variable C-termini -
+#### position. They were previously defined in both files, which allowed them
+#### to diverge. fluORFs gained stop-codon trimming (NS1 and PA-X have
+#### strain-variable C-termini:
 #### 219 vs 230 aa and 232 vs 252 aa between the H3N2 and H5N1 references) and
-#### this file did not. One source now, so it cannot happen again.
+#### this file did not. A single source now prevents this inconsistency.
 #############################################
 
 flu_gene_biotype <- "protein_coding"
@@ -184,7 +184,7 @@ offset_gtf_entries <- function(entries, offset, new_chrom = NULL) {
     fields        = strsplit(line, "\t")[[1]]
     if (!is.null(new_chrom)) fields[1] = new_chrom
     fields[4]     = as.character(as.integer(fields[4]) + offset)  # start
-    fields[5]     = as.character(as.integer(fields[5]) + offset)  # end
+    fields[5]     = as.character(as.integer(fields[5]) + offset)  # End of block.
     paste(fields, collapse = "\t")
   }, USE.NAMES = FALSE)
 }
@@ -210,7 +210,7 @@ for (i in seq_along(ref.seqs)) {
 
   entries = make_gtf_entries(seq.name, seq.len, seg.type, seq.str)
 
-  # Accumulate offset entries and sequence for the combined files
+  # Accumulate coordinate offsets and sequences for the combined files.
   offset.entries    = offset_gtf_entries(entries, cumulative.offset, new_chrom = "combined")
   combined.entries  = c(combined.entries, offset.entries)
   combined.seq.str  = paste0(combined.seq.str, seq.str)
@@ -221,33 +221,35 @@ for (i in seq_along(ref.seqs)) {
                                        stringsAsFactors = FALSE))
   cumulative.offset = cumulative.offset + seq.len
 
-  # Write per-segment GTF
+  # Write the per-segment GTF.
   out.gtf = paste0(output.directory, "/", seq.name, ".gtf")
   writeLines(c("#gtf-version 2.2", entries, "###"), out.gtf)
   cat("  Wrote:", out.gtf, "\n")
 
-  # Write per-segment FASTA (required by SNPGenie alongside the GTF)
+  # Write the per-segment FASTA required by SNPGenie alongside the GTF.
   out.fasta = paste0(output.directory, "/", seq.name, ".fasta")
   writeXStringSet(ref.seqs[i], out.fasta)
   cat("  Wrote:", out.fasta, "\n")
 }
 
-# Write combined files only when the reference contains multiple segments
+# Write combined files only when the reference contains multiple segments.
 if (length(ref.seqs) > 1) {
 
-  # Combined GTF with offset coordinates
+  # Write the combined GTF with offset coordinates.
   out.combined.gtf = paste0(output.directory, "/combined.gtf")
   writeLines(c("#gtf-version 2.2", combined.entries, "###"), out.combined.gtf)
   cat("Wrote combined GTF:", out.combined.gtf, "\n")
 
-  # Combined FASTA (all segments concatenated into one sequence named "combined")
+  # Write the combined FASTA, with all segments concatenated into a sequence
+  # named "combined".
   combined.dna = Biostrings::DNAStringSet(Biostrings::DNAString(combined.seq.str))
   names(combined.dna) = "combined"
   out.combined.fasta = paste0(output.directory, "/combined.fasta")
   writeXStringSet(combined.dna, out.combined.fasta)
   cat("Wrote combined FASTA:", out.combined.fasta, "\n")
 
-  # Offsets table (segment order, offset, and length) used by runSNPGenie.R
+  # Write the offsets table (segment order, offset, and length) used by
+  # runSNPGenie.R.
   out.offsets = paste0(output.directory, "/combined_offsets.tsv")
   write.table(offsets.data, out.offsets,
               row.names = FALSE, quote = FALSE, sep = "\t")

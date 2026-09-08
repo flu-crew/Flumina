@@ -5,7 +5,7 @@
 #### summary tables in the snpGenie_results directory.
 
 args = commandArgs(trailingOnly = TRUE)
-#args = "config.cfg"
+# args = "config.cfg"  # Use a local configuration file during development.
 
 # Parse configuration file
 lines <- readLines(args)
@@ -58,10 +58,10 @@ dir.create(samples.dir, showWarnings = FALSE)
 #### Locate SNPGenie binary
 #############################################
 
-# 1. Check PATH (e.g. snpgenie conda env already activated)
+# 1. Check PATH (for example, an activated SNPGenie conda environment).
 snpgenie.path = Sys.which("snpgenie.pl")
 
-# 2. Fall back to the path supplied in the config file
+# 2. Fall back to the path supplied in the configuration file.
 if (nchar(snpgenie.path) == 0 && !is.null(snpgenie.cfg)) {
   snpgenie.path = snpgenie.cfg
 }
@@ -197,7 +197,7 @@ foreach::foreach(i = seq_along(sample.dirs),
     system(paste0("mv ", sub.vcf.path,
                   " ", ref.out, "/", ref.name, ".vcf"))
 
-  }#end j loop
+  } # End of j loop.
 
   # ------------------------------------------------------------------
   # Combined-sequence SNPGenie run (multi-segment references only)
@@ -237,11 +237,11 @@ foreach::foreach(i = seq_along(sample.dirs),
       system(paste0("mv ", combined.vcf.path,
                     " ", combined.out, "/combined.vcf"))
     }
-  }#end combined run
+  } # End of combined run.
 
   return(NULL)
 
-}#end foreach i
+} # End of for loop.each i
 
 parallel::stopCluster(cl = my.cluster)
 
@@ -304,8 +304,8 @@ for (i in seq_along(sample.names)) {
       all.pop.results = rbind(all.pop.results, d)
     }
 
-  }#end j loop
-}#end i loop
+  } # End of j loop.
+} # End of i loop.
 
 # Write per-segment summary tables
 write.csv(all.codon.results,
@@ -375,7 +375,7 @@ if (run.combined) {
       all.combined.pop = rbind(all.combined.pop, d)
     }
 
-  }#end i loop
+  } # End of i loop.
 
   write.csv(all.combined.codon,
             paste0(output.dir, "/codon_results_combined_summary.csv"),
@@ -393,6 +393,6 @@ if (run.combined) {
             paste0(output.dir, "/population_results_combined_summary.csv"),
             row.names = FALSE)
 
-}#end combined collection
+} # End of combined collection.
 
 cat("SNPGenie analysis complete. Results in:", output.dir, "\n")

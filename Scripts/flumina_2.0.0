@@ -15,16 +15,16 @@
 # while a user with many non-default parameters keeps using config.cfg.
 
 
-#Exit on unset variables would break the optional-argument pattern used below,
-#so it is deliberately not enabled. Pipeline failures are caught explicitly.
+# Do not enable exit-on-unset-variables: it would break the optional-argument
+# pattern used below. Pipeline failures are handled explicitly.
 
-#Flumina's version
+# Flumina version.
 VERSION="2.0.0"
 
 
 ##### Define functions #####
-#Resolve this script's real location, following symlinks (Scripts/flumina is a
-#symlink to Scripts/flumina_<version>, and users may symlink it onto their PATH).
+# Resolve this script's real location, following symlinks. Scripts/flumina is a
+# symlink to Scripts/flumina_<version>, and users may place another symlink on PATH.
 function resolve_script_dir() {
     local src="${BASH_SOURCE[0]}"
     local dir
@@ -38,13 +38,12 @@ function resolve_script_dir() {
 
 SCRIPT_DIR=$(resolve_script_dir)
 
-#The directory holding main.nf and the bundled reference files. Inside the
-#container this is baked in as /opt/flumina; from a git clone it is the parent
-#of the Scripts folder this launcher lives in.
+# Directory containing main.nf and the bundled reference files. In the container
+# this is /opt/flumina; in a git clone it is the parent of this Scripts directory.
 FLUMINA_HOME="${FLUMINA_HOME:-$(dirname "$SCRIPT_DIR")}"
 
 
-#Print the help menu
+# Print the help menu.
 function print_help_menu() {
     cat <<helpChunk
 
@@ -155,12 +154,11 @@ helpChunk
 }
 
 
-#Copy the pipeline out of the container onto the host.
+# Copy the pipeline out of the container onto the host.
 #
-#Running steps as separate scheduler jobs needs Nextflow on the host, and
-#Nextflow needs main.nf and Scripts/ to be readable there — none of which the
-#container can provide from inside itself. Rather than send people to git for
-#files that are already in the image, hand them out directly.
+# Running steps as separate scheduler jobs requires Nextflow on the host, and
+# Nextflow must be able to read main.nf and Scripts/. The container cannot expose
+# those files to the host, so export the copies already present in the image.
 function export_pipeline() {
     local dest="$1"
 
@@ -170,10 +168,9 @@ function export_pipeline() {
 
     mkdir -p "$dest" || abort "Could not create ${dest}"
 
-    #An explicit list, not the whole of FLUMINA_HOME. Inside the container those
-    #are the same thing, but run from a git clone FLUMINA_HOME is the repository
-    #root, and copying it wholesale would drag along work/ and results/ — many
-    #gigabytes of run output that have no business being duplicated.
+    # Use an explicit list rather than copying all of FLUMINA_HOME. Inside the
+    # container they are equivalent, but in a git clone FLUMINA_HOME is the
+    # repository root and copying it would duplicate work/ and results/.
     local item
     for item in main.nf nextflow.config conf Scripts reference.fa curated_database.csv \
                 config.cfg irma_config.sh example_file_rename.csv \
@@ -209,16 +206,15 @@ exportDone
 }
 
 
-#Print an error in the same shape as the rest of the pipeline's messages
+# Print an error using the same format as the pipeline messages.
 function abort() {
     echo >&2 -e "\nERROR: $1"
     exit 1
 }
 
 
-#Which scheduler, if any, the chosen profile submits to, and the command it uses
-#to do it. Every scheduler profile behaves identically from here on — only the
-#submit binary differs — so this is the single place that knows the difference.
+# Determine which scheduler, if any, the selected profile uses and which command
+# submits jobs. Scheduler profiles otherwise behave identically.
 function scheduler_of_profile() {
     case ",${PROFILE}," in
         *,slurm,*)  echo "slurm sbatch" ;;
@@ -231,11 +227,9 @@ function scheduler_of_profile() {
 }
 
 
-#When a path is missing INSIDE the container, the usual cause is not a typo but
-#that the path was never mounted. A container cannot mount anything into itself
-#— binds are fixed by `apptainer run` before this script starts — so the best
-#that can be done here is to name the exact bind needed. Takes the top-level
-#directory of the path, which is what people almost always want to mount.
+# When a path is missing inside the container, it was usually not mounted. A
+# container cannot add mounts after startup; binds are fixed by `apptainer run`.
+# Report the top-level directory that must be mounted.
 function bind_hint() {
     local path="$1" top
     [ "${FLUMINA_CONTAINER:-0}" = "1" ] || return 0
@@ -265,7 +259,7 @@ hintEnd
 }
 
 
-#Validate that a value is a number inside an inclusive range
+# Validate that a value is a number within an inclusive range.
 function check_number() {
     local flag=$1 value=$2 low=$3 high=$4
     if ! [[ $value =~ ^[0-9]*\.?[0-9]+$ ]]; then
@@ -277,9 +271,8 @@ function check_number() {
 }
 
 
-#Read a KEY=VALUE configuration file. Values are stripped of surrounding quotes
-#and comments are ignored. Only keys Flumina knows about are consumed; anything
-#else is reported so a typo does not silently do nothing.
+# Read a KEY=VALUE configuration file. Strip surrounding quotes and ignore
+# comments. Consume only recognized Flumina keys and report unrecognized keys.
 function load_config_file() {
     local file=$1 key value line
     while IFS= read -r line || [ -n "$line" ]; do
@@ -327,8 +320,8 @@ function load_config_file() {
             WFABC_TIMEOUT)         CFG_WFABC_TIMEOUT="$value" ;;
             MAX_REFINE_ITER)       CFG_MAX_REFINE_ITER="$value" ;;
             MAX_MEMORY)            CFG_MAX_MEMORY="$value" ;;
-            #SLURM_* are accepted as aliases: these settings were Slurm-only
-            #before the other schedulers were supported.
+            # Accept SLURM_* aliases for settings that originally supported only
+            # Slurm.
             CLUSTER_QUEUE|SLURM_QUEUE)     CFG_CLUSTER_QUEUE="$value" ;;
             CLUSTER_OPTIONS|SLURM_OPTIONS) CFG_CLUSTER_OPTIONS="$value" ;;
             QUEUE_SIZE)            CFG_QUEUE_SIZE="$value" ;;
@@ -337,7 +330,7 @@ function load_config_file() {
             APPTAINER_CACHE)       CFG_APPTAINER_CACHE="$value" ;;
             WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
             PROFILE)               CFG_PROFILE="$value" ;;
-            #Snakemake-era settings that Nextflow handles itself
+            # Snakemake-era settings that Nextflow handles directly.
             FORCE_UNLOCK|OVERWRITE|TEMPDIR)
                 echo "  note: '${key}' is no longer needed and was ignored (Nextflow handles this)"
                 ;;
@@ -355,7 +348,7 @@ function load_config_file() {
 }
 
 
-#Turn TRUE/FALSE/T/F/YES/NO/1/0 into a Nextflow true/false
+# Convert TRUE/FALSE/T/F/YES/NO/1/0 to a Nextflow boolean.
 function to_bool() {
     case "$(echo "$1" | tr '[:lower:]' '[:upper:]')" in
         TRUE|T|YES|1)  echo "true" ;;
@@ -367,8 +360,8 @@ function to_bool() {
 
 
 
-##### Body #####
-#Assign defaults to variables
+# Initialize the run configuration.
+# Assign default values.
 READ_DIRECTORY="raw_reads"
 OUTPUT_DIRECTORY="Flumina_results"
 NTHREADS=4
@@ -394,7 +387,7 @@ RUN_FLUMUT="true"
 # LoFreq and GATK4 variant callers, on by default. -s l / -s g turn them off.
 RUN_LOFREQ="true"
 RUN_GATK4="true"
-#Third caller, on by default like LoFreq and GATK4. -s v turns it off.
+# Third caller, enabled by default like LoFreq and GATK4. -s v disables it.
 RUN_IVAR="true"
 FLUMUT_LOWFREQ="false"
 FLUMUT_FREQ=0.01
@@ -407,9 +400,9 @@ FLUMUT_SUBREF="true"
 # the wrong ruler. Dropped rows survive in markers_all.tsv either way.
 FLUMUT_KEEP_HANA="false"
 IRMA_CONFIG=""
-# Empty means "derive it from OUTPUT_DIRECTORY once that is known" — see the
-# resolution below. It is deliberately NOT "work", which resolved inside the
-# results directory whenever the run was launched from there.
+# Empty means "derive it from OUTPUT_DIRECTORY once that is known"; see the
+# resolution below. It is not "work", which would resolve inside the results
+# directory when the run is launched from there.
 WORK_DIR=""
 RESUME=""
 DRY_RUN=0
@@ -422,23 +415,23 @@ FIXATION_CUTOFF=""
 WFABC_TIMEOUT=""
 MAX_REFINE_ITER=""
 
-#Inside the container every tool is already on PATH, so tasks run locally and
-#nesting another container runtime would fail. Outside it, Docker is the
-#default because it needs no extra setup beyond the image itself.
+# Inside the container, every tool is already on PATH, so tasks run locally and
+# nesting another container runtime would fail. Outside the container, Docker is
+# the default because it requires no setup beyond the image itself.
 if [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
     PROFILE="standard"
 else
     PROFILE="docker"
 fi
 
-#A config file is picked up automatically when it sits in the working directory,
-#which keeps the legacy `config.cfg` workflow working with no arguments at all.
+# Automatically use config.cfg from the working directory to preserve the
+# legacy configuration-file workflow.
 CONFIG_FILE=""
 [ -f "./config.cfg" ] && CONFIG_FILE="./config.cfg"
 
 
-#Go through input and assign input arguments to variables. Values are held aside
-#so they can be applied AFTER the config file, letting flags win over the file.
+# Parse command-line arguments into variables. Store them separately so they can
+# be applied after the configuration file, giving command-line flags precedence.
 while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
     case ${opt} in
       i ) CLI_READS=$OPTARG ;;
@@ -463,8 +456,8 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
       p ) CLI_PROFILE=$OPTARG ;;
       w ) CLI_WORKDIR=$OPTARG ;;
       s )
-        #Reject unknown letters rather than skipping nothing silently, which
-        #would leave the user believing a step had been turned off.
+        # Reject unknown letters instead of silently skipping them, which would
+        # make the user believe that a step had been disabled.
         if [[ $OPTARG =~ [^0imvlg] ]]; then
             echo -e "\nERROR: Unknown -s option in '${OPTARG}'. Valid letters are '0', 'i', 'm', 'v', 'l', and 'g'" 1>&2
             print_help_menu
@@ -494,8 +487,8 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
       N ) DRY_RUN=1 ;;
       - )
         if [[ "$OPTARG" == "version" ]]; then
-            #The build stamp only exists in the container image. Printing it
-            #turns "am I running a stale .sif?" into something answerable.
+            # The build stamp exists only in the container image. Printing it
+            # identifies whether a stale .sif file is being used.
             if [ -r "${FLUMINA_HOME}/BUILD_DATE" ]; then
                 echo "Flumina v${VERSION} (image built $(cat "${FLUMINA_HOME}/BUILD_DATE"))"
             else
@@ -505,7 +498,7 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
         elif [[ "$OPTARG" == "help" ]]; then
             print_help_menu
         elif [[ "$OPTARG" == "export" ]]; then
-            #Accept both `--export DIR` and a bare `--export`
+            # Accept both `--export DIR` and a bare `--export`.
             next_arg="${!OPTIND}"
             if [ -n "$next_arg" ] && [[ $next_arg != -* ]]; then
                 OPTIND=$((OPTIND + 1))
@@ -532,11 +525,10 @@ while getopts ":i:o:t:M:c:n:r:a:m:g:d:q:f:b:l:x:p:w:s:Q:A:j:CGWRNh-:" opt; do
     esac
 done
 
-#getopts stops at the first non-option argument, and at a bare '--', leaving the
-#rest unparsed. Ignoring those silently is the worst outcome: a run that looks
-#like it accepted your settings but did not. A stray '--' is the common way to
-#land here, since some container runtimes suggest it for passing arguments
-#through.
+# getopts stops at the first non-option argument and at a bare '--', leaving the
+# remainder unparsed. Reject those arguments so a run cannot appear to accept
+# settings that were ignored. Some container runtimes suggest '--' when passing
+# arguments through, so this case is handled explicitly.
 shift $((OPTIND - 1))
 if [ "$#" -gt 0 ]; then
     echo >&2 -e "\nERROR: These arguments were not understood: $*"
@@ -549,7 +541,7 @@ if [ "$#" -gt 0 ]; then
 fi
 
 
-#Apply the configuration file, if there is one
+# Apply the configuration file, when present.
 if [ -n "$CONFIG_FILE" ]; then
     [ -f "$CONFIG_FILE" ] || abort "Configuration file not found at ${CONFIG_FILE}"
     echo -e "\nLoading configuration file ${CONFIG_FILE}"
@@ -584,7 +576,7 @@ if [ -n "$CONFIG_FILE" ]; then
     [ -n "$CFG_WFABC_TIMEOUT" ]     && WFABC_TIMEOUT="$CFG_WFABC_TIMEOUT"
     [ -n "$CFG_MAX_REFINE_ITER" ]   && MAX_REFINE_ITER="$CFG_MAX_REFINE_ITER"
 
-    #DISABLE_IRMA is the legacy spelling and is inverted relative to run_irma
+    # DISABLE_IRMA is the legacy spelling and is inverted relative to run_irma.
     if [ -n "$CFG_DISABLE_IRMA" ]; then
         case "$(to_bool "$CFG_DISABLE_IRMA")" in
             true)  RUN_IRMA="false" ;;
@@ -592,7 +584,8 @@ if [ -n "$CONFIG_FILE" ]; then
             *)     abort "DISABLE_IRMA must be TRUE or FALSE, but got '${CFG_DISABLE_IRMA}'" ;;
         esac
     fi
-    #IRMA is the current positive spelling; it wins over legacy DISABLE_IRMA.
+    # IRMA is the current positive spelling and takes precedence over
+    # DISABLE_IRMA.
     if [ -n "$CFG_IRMA" ]; then
         converted=$(to_bool "$CFG_IRMA")
         [ -z "$converted" ] && abort "IRMA must be TRUE or FALSE, but got '${CFG_IRMA}'"
@@ -618,7 +611,7 @@ if [ -n "$CONFIG_FILE" ]; then
 fi
 
 
-#Apply command-line arguments last so they override the configuration file
+# Apply command-line arguments last so they override the configuration file.
 [ -n "$CLI_READS" ]        && READ_DIRECTORY="$CLI_READS"
 [ -n "$CLI_OUTDIR" ]       && OUTPUT_DIRECTORY="$CLI_OUTDIR"
 [ -n "$CLI_THREADS" ]      && NTHREADS="$CLI_THREADS"
@@ -639,7 +632,7 @@ fi
 [ -n "$CLI_PROFILE" ]      && PROFILE="$CLI_PROFILE"
 [ -n "$CLI_WORKDIR" ]      && WORK_DIR="$CLI_WORKDIR"
 
-# Work directory: BESIDE the results, never inside them.
+# Work directory: beside the results, never inside them.
 #
 # Nextflow's work/ holds a staged copy of nearly everything — on the swine WGS
 # run that was 872 copies of reference.fa, 429 LoFreq VCFs and one of every
@@ -670,17 +663,16 @@ fi
 [ "${CLI_SNPGENIE:-0}" = "1" ]    && SNPGENIE="true"
 [ "${CLI_WFABC:-0}" = "1" ]       && WFABC="true"
 
-#-l both enables low-frequency screening and sets its threshold
+# -l enables low-frequency screening and sets its threshold.
 if [ -n "$CLI_FLUMUT_FREQ" ]; then
     FLUMUT_FREQ="$CLI_FLUMUT_FREQ"
     FLUMUT_LOWFREQ="true"
 fi
 
-#Program dependencies. A program turned on must not depend on one turned off,
-#and at least one variant caller must run. These fail fast, before Nextflow
-#starts; main.nf enforces the same rules as a backstop. The config.cfg "Programs
-#to run" section documents them. We ERROR rather than silently disable a step, so
-#a run never quietly drops output the user asked for.
+# Validate program dependencies. An enabled program must not depend on a disabled
+# program, and at least one variant caller must run. Validate these conditions
+# before Nextflow starts; main.nf repeats them as a safeguard. Fail rather than
+# silently disabling a requested step.
 if [ "$RUN_LOFREQ" = "false" ] && [ "$RUN_GATK4" = "false" ] && [ "$RUN_IVAR" = "false" ]; then
     abort "No variant caller is enabled. Set at least one of LOFREQ, GATK4, or IVAR to TRUE."
 fi
@@ -697,16 +689,15 @@ if [ "$WFABC" = "true" ] && [ "$RUN_LOFREQ" = "false" ] && [ "$RUN_IVAR" = "fals
     abort "WFABC=TRUE needs LOFREQ=TRUE or IVAR=TRUE: selection needs allele fractions, and GATK4 reports genotypes."
 fi
 
-#An IRMA config in the working directory is picked up automatically
+# Automatically use irma_config.sh from the working directory when present.
 if [ -z "$IRMA_CONFIG" ] && [ -f "./irma_config.sh" ]; then
     IRMA_CONFIG="./irma_config.sh"
 fi
 
 
 ##### Validate before launching anything #####
-#Checked first: submitting to a scheduler means Nextflow shells out to sbatch,
-#which only exists on the host. This is an architectural blocker rather than a
-#fixable input, so report it before anything about missing files.
+# Check this first: scheduler submission requires a host-side submission binary.
+# This is an execution-environment limitation, so report it before input errors.
 read -r SCHEDULER SUBMIT_CMD <<< "$(scheduler_of_profile)"
 
 if [ -n "$SCHEDULER" ] && [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
@@ -737,15 +728,11 @@ check_number "l" "$FLUMUT_FREQ"  0 1
 [ -f "$REFERENCE_FILE" ] || abort "Reference FASTA not found: ${REFERENCE_FILE}
        Set it with -r"
 
-#makeGTF.R assumes each segment is a coding sequence that starts at base 1. It
-#does not search for the start codon. Nothing downstream detects a broken
-#reference: makeGTF annotates the wrong frame, so every amino-acid call for the
-#segment is wrong. This check stops that. Each segment must pass two rules: base
-#1-3 is ATG, and the ORF from base 1 covers at least 50% of the segment. The 50%
-#floor is loose because MP and NS are bicistronic; their primary ORF (M1, NS1)
-#covers only 77-78%. The awk strips \r, so the check runs on the real sequence
-#(this step is before PREPARE_REFERENCE normalises CRLF). Keep it identical to
-#FluPore's copy. Numbers in FluPore's HANDOFF.md.
+# makeGTF.R assumes each segment is a coding sequence beginning at base 1 and
+# does not search for a start codon. Validate that bases 1–3 are ATG and that the
+# ORF from base 1 covers at least 50% of the segment. The threshold is loose
+# because MP and NS are bicistronic. The awk command removes \r before checking
+# the sequence; this runs before PREPARE_REFERENCE normalizes CRLF line endings.
 ref_problems=$(awk '
     /^>/ { name=substr($0,2); sub(/[ \t].*/,"",name); order[++k]=name; next }
          { gsub(/[ \t\r]/,""); seq[name]=seq[name] toupper($0) }
@@ -782,12 +769,12 @@ ${ref_problems}
        to an alignment column, not to a codon boundary, and gap-stripping can
        shift the frame. Trim each segment to its own ATG before re-running."
 
-#The curated database and the metadata are both optional: a missing one drops
-#the step it feeds and the run continues. The warning names the path it looked
-#for, so a typo is still visible — it just does not cost you the whole run.
+# The curated database and metadata are optional. If either is missing, the
+# dependent step is skipped and the run continues; the warning reports the path
+# that was checked.
 #
-#WFABC is the exception below: it cannot do anything at all without metadata,
-#so there it is a hard error rather than a degraded run.
+# WFABC is the exception: it cannot run without metadata, so this is a hard error
+# rather than a degraded run.
 if [ ! -f "$AA_DB" ]; then
     echo -e "\nWARNING: curated amino acid database not found: ${AA_DB:-none given}"
     echo -e "         Skipping curated_amino_acids.txt and summary_curated_sites.txt."
@@ -819,8 +806,8 @@ fi
 [ -f "${FLUMINA_HOME}/main.nf" ] || abort "Could not find main.nf in ${FLUMINA_HOME}
        Set FLUMINA_HOME to the directory holding main.nf"
 
-#Checked only for a real run: a dry run exists to inspect the command before
-#anything is installed, so it must not depend on the engine being present.
+# Check this only for a real run. A dry run is intended to inspect the command
+# before software is installed and must not require the engine.
 if [ "$DRY_RUN" -eq 0 ] && ! command -v nextflow &> /dev/null; then
     abort "nextflow was not found on your PATH.
        On a cluster it is usually a module:
@@ -867,24 +854,25 @@ NF_ARGS=(
     --flumut_keep_mismatched_ha_na "$FLUMUT_KEEP_HANA"
 )
 
-#Passed only when present: an empty --aa_db/--metadata would set the param to an
-#empty string, which is not the same as leaving it null and would defeat the
-#optional handling in main.nf.
+# Pass optional parameters only when present. An empty --aa_db or --metadata
+# value is different from leaving the parameter null and would defeat the
+# optional handling in main.nf.
 [ -n "$AA_DB" ]                && NF_ARGS+=(--aa_db "$AA_DB")
 [ -n "$METADATA" ]             && NF_ARGS+=(--metadata "$METADATA")
 [ -n "$APPTAINER_CACHE" ]      && NF_ARGS+=(--apptainer_cache "$APPTAINER_CACHE")
 [ -n "$PUBLISH_MODE" ]         && NF_ARGS+=(--publish_mode "$PUBLISH_MODE")
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
-# CLEANUP=FALSE also publishes the intermediate BAMs.
+# CLEANUP=FALSE also publishes intermediate BAM files.
 [ "$CLEANUP" != "true" ]       && NF_ARGS+=(--publish_intermediate_bams true)
-#Scheduler settings are written to a generated config file rather than passed as
-#--parameters, because Nextflow rejects any --param whose value begins with a
-#dash — and scheduler options almost always do ('-A account', '--qos=...').
-#Setting the process directives directly also sidesteps config ordering: a -c
-#file is merged last, so these win over the slurm profile's defaults.
+# Write scheduler settings to a generated configuration file rather than passing
+# --parameters, because Nextflow rejects any --param whose value begins with a
+# dash, and scheduler options often do (for example, '-A account' or
+# '--qos=...'). Setting process directives directly also avoids configuration
+# ordering issues: a -c file is merged last, so these values override profile
+# defaults.
 CLUSTER_CONFIG=""
-#Temporary directories this run creates, removed however the script exits. One
-#handler for all of them, since bash keeps only the last trap per signal.
+# Track temporary directories created by this run and remove them on exit. Use
+# one handler because Bash retains only the last trap for a signal.
 TEMP_PATHS=()
 function cleanup_temp_paths() {
     local p
@@ -897,15 +885,15 @@ trap cleanup_temp_paths EXIT INT TERM
 CLUSTER_TMPDIR=""
 if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ] \
    || [ "$CLEANUP" = "true" ]; then
-    #A temporary DIRECTORY, not a temporary file: BSD mktemp only expands the
-    #X's at the end of a template, so a name like `cluster.XXXXXX.config` comes
-    #back with the X's intact and every concurrent run would share one file.
+    # Create a temporary directory, not a temporary file. BSD mktemp expands
+    # only trailing X characters, so a template such as
+    # `cluster.XXXXXX.config` would otherwise be shared by concurrent runs.
     CLUSTER_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/flumina.XXXXXX")"
     TEMP_PATHS+=("$CLUSTER_TMPDIR")
     CLUSTER_CONFIG="${CLUSTER_TMPDIR}/cluster.config"
-    #Clean up whatever was generated however this script exits
+    # Clean up generated files regardless of how this script exits.
 
-    #Single quotes are the string delimiter below, so any in the value must be escaped
+    # Single quotes delimit the values below, so embedded quotes must be escaped.
     esc_queue="${CLUSTER_QUEUE//\'/\\\'}"
     esc_options="${CLUSTER_OPTIONS//\'/\\\'}"
 
@@ -914,8 +902,8 @@ if [ -n "$CLUSTER_QUEUE" ] || [ -n "$CLUSTER_OPTIONS" ] || [ -n "$QUEUE_SIZE" ] 
         [ -n "$CLUSTER_QUEUE" ]   && echo "process.queue = '${esc_queue}'"
         [ -n "$CLUSTER_OPTIONS" ] && echo "process.clusterOptions = '${esc_options}'"
         [ -n "$QUEUE_SIZE" ]    && echo "executor.queueSize = ${QUEUE_SIZE}"
-        #cleanup is a top-level config setting, not a param, so it can only be
-        #set through a config file — not with --cleanup on the command line.
+        # cleanup is a top-level configuration setting, not a parameter, so it can
+        # be set only through a configuration file—not with --cleanup.
         [ "$CLEANUP" = "true" ] && echo "cleanup = true"
     } > "$CLUSTER_CONFIG"
 
@@ -987,16 +975,13 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 
-#Nextflow creates plugins/ and tmp/ under NXF_HOME the moment it starts, so
-#NXF_HOME must be writable. The image bakes the framework into /opt/nextflow so
-#it never has to download it at run time — but Apptainer mounts the image
-#READ-ONLY, and no amount of chmod at build time changes that. Docker hides the
-#problem behind its writable layer, which is why this only ever fails under
-#Apptainer.
+# Nextflow creates plugins/ and tmp/ under NXF_HOME at startup, so NXF_HOME must
+# be writable. The image stores the framework in /opt/nextflow and Apptainer
+# mounts the image read-only; Docker hides this issue with its writable layer.
 #
-#So: build a writable NXF_HOME per run and point it at the baked framework by
-#symlink. Nothing is copied (the framework is 33 MB), nothing is downloaded, and
-#the read-only image is never written to.
+# Create a writable NXF_HOME for each run and point it to the bundled framework
+# with a symlink. This avoids copying or downloading the framework and never
+# writes to the read-only image.
 if [ "${FLUMINA_CONTAINER:-0}" = "1" ]; then
     BAKED_NXF_HOME="${NXF_HOME:-/opt/nextflow}"
     RUN_NXF_HOME="$(mktemp -d "${TMPDIR:-/tmp}/flumina-nxf.XXXXXX")" || \

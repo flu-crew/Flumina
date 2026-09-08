@@ -1,17 +1,17 @@
-#### Prior to this script, run the Flumina pipeline to obtain variant calls in VCF files
+#### Run the Flumina pipeline first to obtain variant calls in VCF files.
 
 # Required packages:
 # 1. data.table package
 
-#Takes 2-3 minutes to run on 500 samples
+# Runtime is approximately 2–3 minutes for 500 samples.
 
 args = commandArgs(trailingOnly = TRUE)
-#args = "config.cfg"
+# args = "config.cfg"  # Use a local configuration file during development.
 
 # Function to read and parse configuration file
 lines <- readLines(args)
 
-#makes a list and loads stuff in with an equal sign
+# Parse key-value pairs into a named list.
 config <- list()
 for (line in lines) {
   line <- trimws(line)  # Remove leading and trailing whitespaces
@@ -22,16 +22,17 @@ for (line in lines) {
       value <- trimws(parts[2])
       config[[key]] <- value
     }# end if
-  }#end if
-}#end for
+  } # End of if block.
+} # End of for loop.
 
-#output directory for analysis
+# Output directory for the analysis.
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_analysis")
 
-#vcf directory name, full path if not in working directory
+# VCF directory name; provide the full path when it is not in the working
+# directory.
 vcf.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/vcf_files")
 
-#name for the table
+# Output table name.
 save.name = "variant-table"
 
 # Amino-acid positions come from the actual coding intervals, not from
@@ -60,21 +61,21 @@ if (length(reference.path) == 0L || !nzchar(reference.path) ||
 
 #### LoFreq
 
-#the string or name of the VCF file for data anaylsis 
+# VCF file name or path for analysis.
 vcf.string = "lofreq-called-variants.vcf" #or "gatk4-filtered-snps.vcf"
 
-#Creates output directory
+# Create the output directory.
 dir.create(output.directory)
 
-#Get multifile databases together
+# Collect the multi-file inputs.
 all.files = list.files(vcf.directory, recursive = T)
 vcf.files = all.files[grep(paste0(vcf.string, "$"), all.files)]
 
-#Collects the super cool data
+# Initialize the collected variant data.
 header.data = c("method", "sample", "locus", "position", "reference",
                 "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position")
 
-#Sets up data collection data.frame
+# Initialize the data frame used to collect records.
 collect.data = data.table::data.table(matrix(as.numeric(0),
                                              nrow = length(vcf.files)*1000,
                                              ncol = length(header.data)))
@@ -86,7 +87,7 @@ collect.data[, locus:=as.character(locus)]
 collect.data[, reference:=as.character(reference)]
 collect.data[, alternative:=as.character(alternative)]
 
-#Loops through each locus and does operations on them
+# Iterate over loci and process their records.
 # seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
 # c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
 # "cannot open file '<outdir>/vcf_files/NA': No such file or directory" - an
@@ -95,12 +96,12 @@ collect.data[, alternative:=as.character(alternative)]
 x = 1
 for (i in seq_along(vcf.files)){
   
-  #Counts comment lines to find first line
+  # Count comment lines to locate the first data line.
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
   skip = 0
   line = readLines(VCF, 1)
   
-  #Finds contig line
+  # Locate the contig definition line.
   while(!grepl("#CHROM", line)) {
     skip = skip + 1
     line = readLines(VCF, 1)
@@ -108,18 +109,18 @@ for (i in seq_along(vcf.files)){
   
   close(VCF)
   
-  #Reads in VCF after finding which lines to skip
+  # Read the VCF after determining how many lines to skip.
   VCF = read.table(paste0(vcf.directory, "/", vcf.files[i]), skip = skip, comment.char = "", header = TRUE,
                    stringsAsFactors = FALSE, check.names = FALSE)
   
   if (is.null(nrow(VCF)) == TRUE || nrow(VCF) == 0){
     
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "LoFreq")
-    #Collect data
+    # Collect the variant data.
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
-    #Sample data
+    # Extract the sample data.
     data.table::set(collect.data, i = as.integer(x), j = match("locus", header.data), value = 0 )
-    #Length data
+    # Extract the sequence length.
     data.table::set(collect.data, i = as.integer(x), j = match("position", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("reference", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("alternative", header.data), value = 0 )
@@ -135,46 +136,46 @@ for (i in seq_along(vcf.files)){
     
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "LoFreq")
     
-    #Collect data
+    # Collect the variant data.
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
-    #Sample data
+    # Extract the sample data.
     data.table::set(collect.data, i = as.integer(x), j = match("locus", header.data), value = VCF$'#CHROM'[j] )
-    #Length data
+    # Extract the sequence length.
     data.table::set(collect.data, i = as.integer(x), j = match("position", header.data), value = VCF$POS[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("reference", header.data), value = VCF$REF[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("alternative", header.data), value = VCF$ALT[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("quality", header.data), value = VCF$QUAL[j] )
     
-    #find depth
+    # Extract the read depth.
     depth.val = as.numeric(gsub(";", "", gsub(";.*", "", gsub(".*DP=", "", VCF[j,]$INFO))) ) 
     data.table::set(collect.data, i = as.integer(x), j = match("depth", header.data), value = depth.val)
     
-    #find depth
+    # Extract the mapping quality.
     if (length(grep("MQ=", VCF[j,]$INFO)) != 0){
       mq.val = as.numeric(gsub(";.*", "", gsub(".*;MQ=", "", VCF[j,]$INFO)))
     } else { mq.val = NA }
     
-    #Map quality
+    # Extract the mapping quality.
     data.table::set(collect.data, i = as.integer(x), j = match("map_quality", header.data), value = mq.val)
 
-    #find depth
+    # Extract the allele frequency.
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
     
     # aa_position is NOT computed here any more. It depends on which product a
     # position codes for, and a position can code for two, so it is filled in
     # after both callers have been read - see the annotation block below.
-    #counter goes counting
+    # Increment the record counter.
     x = x + 1
-  }#end j loop
+  } # End of j loop.
   
-}#end i loop
+} # End of i loop.
 
-#Removes empty samples
+# Remove samples with no records.
 collect.data = collect.data[collect.data$sample != 0,]
 collect.data = collect.data[collect.data$locus != 0,]
 
-#Sometimes the amino acid T will turn into TRUE
+# Prevent amino acid T from being converted to TRUE.
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
@@ -335,24 +336,24 @@ cat(sprintf("iVar: %d files, %d SNP rows kept, %d indel rows dropped\n",
 #### GATK4
 #############################################
 
-#the string or name of the VCF file for data anaylsis 
+# VCF file name or path for analysis.
 vcf.string = "gatk4-filtered-snps.vcf" #or "gatk4-filtered-snps.vcf"
 
-#Creates output directory
+# Create the output directory.
 dir.create(output.directory)
 
-#Get multifile databases together
+# Collect the multi-file inputs.
 all.files = list.files(vcf.directory, recursive = T)
 vcf.files = all.files[grep(paste0(vcf.string, "$"), all.files)]
 
-#Collects the super cool data
+# Initialize the collected variant data.
 # gatk_filter carries VariantFiltration's own verdict - see the block where it
 # is read, below.
 header.data = c("method", "sample", "locus", "position", "reference",
                 "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position",
                 "gatk_filter")
 
-#Sets up data collection data.frame
+# Initialize the data frame used to collect records.
 collect.data = data.table::data.table(matrix(as.numeric(0),
                                              nrow = length(vcf.files)*1000,
                                              ncol = length(header.data)))
@@ -365,7 +366,7 @@ collect.data[, reference:=as.character(reference)]
 collect.data[, alternative:=as.character(alternative)]
 collect.data[, gatk_filter:=as.character(gatk_filter)]
 
-#Loops through each locus and does operations on them
+# Iterate over loci and process their records.
 # seq_along, NOT 1:length(). With no matching VCFs length() is 0 and 1:0 is
 # c(1, 0), so the loop RUNS, vcf.files[1] is NA, and the script dies with
 # "cannot open file '<outdir>/vcf_files/NA': No such file or directory" - an
@@ -374,12 +375,12 @@ collect.data[, gatk_filter:=as.character(gatk_filter)]
 x = 1
 for (i in seq_along(vcf.files)){
 
-  #Counts comment lines to find first line
+  # Count comment lines to locate the first data line.
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
   skip = 0
   line = readLines(VCF, 1)
 
-  #Finds contig line
+  # Locate the contig definition line.
   while(!grepl("#CHROM", line)) {
     skip = skip + 1
     line = readLines(VCF, 1)
@@ -387,7 +388,7 @@ for (i in seq_along(vcf.files)){
 
   close(VCF)
 
-  #Reads in VCF after finding which lines to skip
+  # Read the VCF after determining how many lines to skip.
   VCF = read.table(paste0(vcf.directory, "/", vcf.files[i]), skip = skip, comment.char = "", header = TRUE,
                    stringsAsFactors = FALSE, check.names = FALSE)
 
@@ -401,11 +402,11 @@ for (i in seq_along(vcf.files)){
   if (is.null(nrow(VCF)) == TRUE || nrow(VCF) == 0){
 
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "GATK4")
-    #Collect data
+    # Collect the variant data.
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
-    #Sample data
+    # Extract the sample data.
     data.table::set(collect.data, i = as.integer(x), j = match("locus", header.data), value = 0 )
-    #Length data
+    # Extract the sequence length.
     data.table::set(collect.data, i = as.integer(x), j = match("position", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("reference", header.data), value = 0 )
     data.table::set(collect.data, i = as.integer(x), j = match("alternative", header.data), value = 0 )
@@ -437,46 +438,46 @@ for (i in seq_along(vcf.files)){
     # invisible.
     data.table::set(collect.data, i = as.integer(x), j = match("gatk_filter", header.data), value = filter.col[j])
 
-    #Collect data
+    # Collect the variant data.
     data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = gsub("/.*", "", vcf.files[i]) )
-    #Sample data
+    # Extract the sample data.
     data.table::set(collect.data, i = as.integer(x), j = match("locus", header.data), value = VCF$'#CHROM'[j] )
-    #Length data
+    # Extract the sequence length.
     data.table::set(collect.data, i = as.integer(x), j = match("position", header.data), value = VCF$POS[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("reference", header.data), value = VCF$REF[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("alternative", header.data), value = VCF$ALT[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("quality", header.data), value = VCF$QUAL[j] )
     
-    #find depth
+    # Extract the read depth.
     depth.val = as.numeric(gsub(";", "", gsub(";.*", "", gsub(".*DP=", "", VCF[j,]$INFO))) ) 
     data.table::set(collect.data, i = as.integer(x), j = match("depth", header.data), value = depth.val)
     
-    #find depth
+    # Extract the mapping quality.
     if (length(grep("MQ=", VCF[j,]$INFO)) != 0){
       mq.val = as.numeric(gsub(";.*", "", gsub(".*;MQ=", "", VCF[j,]$INFO)))
     } else { mq.val = NA }
     
-    #Map quality
+    # Extract the mapping quality.
     data.table::set(collect.data, i = as.integer(x), j = match("map_quality", header.data), value = mq.val)
     
-    #find depth
+    # Extract the allele frequency.
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
     
     # aa_position is NOT computed here any more. It depends on which product a
     # position codes for, and a position can code for two, so it is filled in
     # after both callers have been read - see the annotation block below.
-    #counter goes counting
+    # Increment the record counter.
     x = x + 1
-  }#end j loop
+  } # End of j loop.
   
-}#end i loop
+} # End of i loop.
 
-#Removes empty samples
+# Remove samples with no records.
 collect.data = collect.data[collect.data$sample != 0,]
 collect.data = collect.data[collect.data$locus != 0,]
 
-#Sometimes the amino acid T will turn into TRUE
+# Prevent amino acid T from being converted to TRUE.
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
@@ -843,7 +844,7 @@ cat(sprintf("Call assessment (MIN_DEPTH=%g MIN_ALT=%g MIN_FREQ=%g strand_bias=%s
             AS_MIN_DEPTH, AS_MIN_ALT, AS_MIN_FREQ, run.strand.bias,
             paste(names(vt), vt, sep = "=", collapse = "  ")))
 
-#Saves the data
+# Save the data.
 write.csv(final.data, paste0(output.directory, "/", save.name, ".csv"),
           row.names = F, quote = F)
 
@@ -851,11 +852,8 @@ write.csv(final.data, paste0(output.directory, "/", save.name, ".csv"),
 
 
 #########################
-###### END SCRIPT
+###### End of script
 #########################
-
-
-
 
 
 

@@ -1,43 +1,41 @@
 #### filter_flumut_subtype.R
 ####
-#### Drop FluMut HA/NA markers when the reference's subtype does not match the
-#### one those markers are numbered for.
+#### Drop FluMut HA/NA markers when the reference subtype does not match the
+#### numbering scheme used by those markers.
 ####
-#### FluMut is an H5N1 tool. Its database is broader than that label suggests -
-#### on the swine H3N2 run the 69 retained markers carried 16 subtype labels and
-#### only 19 were H5N1 - so blanket-refusing to run it off-subtype throws away
-#### most of its value. The internal genes are the value: PB2, PB1, PA, NP and
+#### FluMut is an H5N1 tool, but its database is broader than that label suggests.
+#### On the swine H3N2 run, the 69 retained markers carried 16 subtype labels and
+#### only 19 were H5N1. Refusing to run it off-subtype would discard most of its
+#### value. The internal genes are subtype-agnostic: PB2, PB1, PA, NP, and
 #### NS markers are subtype-agnostic biology (PB2:K702R raises polymerase
 #### activity in mammalian cells whatever the HA is), and they were 50 of those
 #### 69.
 ####
-#### HA and NA are the problem, and the database's own protein names give it
-#### away: HA1-5 is H5 HA1 numbering, NA-1 is N1 NA numbering. Two failures
-#### compound off-subtype. H3 and H5 HA1 differ in length and alignment, so
+#### HA and NA require special handling. The database protein names identify their
+#### numbering schemes: HA1-5 uses H5 HA1 numbering, and NA-1 uses N1 numbering.
+#### H3 and H5 HA1 differ in length and alignment, so
 #### position 139 in one is not position 139 in the other. And the two have
 #### diverged far enough that even a correctly mapped residue need not carry the
 #### same meaning - a substitution that shifts receptor binding in H5 may do
 #### nothing, or something else, in H3.
 ####
-#### Filter on the PROTEIN PREFIX, never the Subtype column. Subtype records
+#### Filter on the protein prefix, never the Subtype column. Subtype records
 #### which virus a finding was published in, not which numbering the position
 #### uses: PB2:K702R is labelled H5N1 and is entirely valid on swine.
 ####
-#### Subtype comes from segment names - A_HA_H3 / A_NA_N2 on the swine reference,
-#### A_HA_H5 on the cow data - from TWO sources, in this order:
+#### Determine subtype from segment names (A_HA_H3 / A_NA_N2 on the swine
+#### reference and A_HA_H5 on the cow data) using two sources, in this order:
 ####
 ####   1. the reference FASTA's own segment names, and
 ####   2. the IRMA consensus contigs, whose headers IRMA writes with the subtype
 ####      it assigned (>A_HA_H5, >A_NA_N1), aggregated across samples.
 ####
-#### The second exists because a bare A_HA is unconfirmable, unconfirmed counts
-#### as a mismatch, and the repo's OWN reference.fa is bare - so the conservative
-#### branch was the common case rather than a corner one. It was also actively
-#### wrong on the bundled test_dataset: those four samples are H5N1 (IRMA calls
-#### every one A_HA_H5 / A_NA_N1) and their HA/NA markers were being dropped on
-#### the one dataset here where H5/N1 numbering is exactly correct.
+#### The second source is necessary because a bare A_HA is unconfirmable and is
+#### therefore treated as a mismatch. The bundled reference.fa is bare, but the
+#### test_dataset samples are H5N1: IRMA assigns A_HA_H5 / A_NA_N1 to each, and
+#### H5/N1 numbering is correct for those markers.
 ####
-#### The reference still WINS when it states a subtype, because that is an
+#### The reference takes precedence when it states a subtype, because that is an
 #### explicit claim about the exact sequence FLUMUT_LOWFREQ screens in reference
 #### coordinates. IRMA fills the gap only where the reference is silent - so this
 #### is purely additive and cannot change a run that already resolved. Where the
@@ -45,11 +43,11 @@
 #### assembling to a different subtype than the reference they were mapped to is
 #### a problem with the run, not a labelling detail.
 ####
-#### No BLAST and no database: IRMA has already done this classification, its
-#### answer is in a file these processes already stage, and we trust that same
-#### assembly for everything else downstream.
+#### No BLAST or additional database is required: IRMA has already performed this
+#### classification, and its result is available in a file staged by these
+#### processes. The same assembly is trusted for all downstream analysis.
 ####
-#### Nothing is destroyed: markers_all.tsv already holds every row.
+#### markers_all.tsv retains every row.
 ####
 #### Usage:
 ####   Rscript filter_flumut_subtype.R <reference.fa> <markers.tsv> <keep> [outdir] [consensus_dir]
@@ -83,7 +81,7 @@ ref.names <- seg_names_of(ref.path)
 ha.ref <- subtype_in(ref.names, "HA", "H")
 na.ref <- subtype_in(ref.names, "NA", "N")
 
-# IRMA's own call, one per sample, aggregated. A STRICT MAJORITY of the samples
+# IRMA's own call, one per sample, aggregated. A strict majority of samples
 # that produced a call is required, and the distribution is always printed: a
 # cohort that genuinely splits across subtypes is a finding, not an error to be
 # voted away, and silently taking the mode would hide it.
@@ -107,8 +105,8 @@ consensus_subtype <- function(dir, seg, letter) {
 ha.irma <- consensus_subtype(cons.dir, "HA", "H")
 na.irma <- consensus_subtype(cons.dir, "NA", "N")
 
-# Reference first: it is an explicit claim about the exact sequence screened in
-# reference coordinates. IRMA only fills a gap, never overrides.
+# Prefer the reference: it is an explicit claim about the exact sequence screened
+# in reference coordinates. IRMA fills gaps but never overrides it.
 resolve <- function(ref, irma, gene) {
   if (!is.na(ref)) {
     if (!is.na(irma$call) && irma$call != ref)
@@ -138,18 +136,18 @@ cat(sprintf("Reference subtype: HA=%s NA=%s -> HA markers %s, NA markers %s\n",
             if (is.na(na)) "unconfirmed" else na,
             if (ha.ok) "valid" else "MISMATCHED",
             if (na.ok) "valid" else "MISMATCHED"), file = stderr())
-# Which source decided, so a reader never has to guess whether a subtype was
+# Record which source decided, so readers do not have to infer whether a subtype was
 # stated by the reference or inferred from the assemblies.
 cat(sprintf("  subtype source: HA from %s, NA from %s\n", ha.r$source, na.r$source),
     file = stderr())
 
-# Publish the decision rather than leaving it in a log.
+# Publish the decision rather than leaving it only in the log.
 #
-# FluLens carries its own refSubtype() applying "the same rule" against the
+# FluLens carries its own refSubtype() implementation of this rule against the
 # reference names, and duplicated rules are exactly how this project has been
 # bitten before - stats.multi disagreed with the panel it was meant to match for
-# weeks because only one copy got fixed. The moment this script gained a second
-# source, that copy became WRONG rather than merely duplicated: a bare-named
+# weeks because only one copy was fixed. When this script gained a second source,
+# that copy became incorrect rather than merely duplicated: a bare-named
 # H5N1 run now keeps its HA/NA markers here while FluLens would still call them
 # unconfirmed. So the answer is written down and the app reads it instead of
 # recomputing it.
@@ -167,8 +165,8 @@ write.table(
              stringsAsFactors = FALSE),
   file.path(outdir, "subtype.tsv"), sep = "\t", row.names = FALSE, quote = FALSE)
 
-# Only NOW does an absent markers.tsv end the run. The subtype is a property of
-# the RUN, not of whether FluMut happened to find anything, and this check used
+# An absent markers.tsv ends the run only at this point. The subtype is a property
+# of the run, not of whether FluMut found anything, and this check previously
 # to sit at the top - which would have skipped writing the file in exactly the
 # cases where a reader most needs to know the screen was attempted.
 if (!file.exists(markers.path) || file.info(markers.path)$size == 0) {

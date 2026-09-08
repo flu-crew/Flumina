@@ -1,8 +1,8 @@
 #!/usr/bin/env nextflow
 /*
- * Flumina 2.0 — Nextflow port of the Snakemake pipeline.
+ * Flumina 2.0 — Nextflow implementation of the Snakemake pipeline.
  *
- * Output layout is deliberately identical to the Snakemake version
+ * The output layout is identical to the Snakemake version
  * (BAM_files/, vcf_files/, logs/, IRMA_results/, processed-reads/) so the
  * downstream R scripts run unmodified and the two pipelines can be diffed
  * output-for-output on the same test dataset.
@@ -17,23 +17,24 @@ nextflow.enable.dsl = 2
 /*
  * Locate the R1/R2 pair for one prefix from the rename CSV.
  *
- * Sequencing cores hand back reads in more shapes than one glob can cover:
+ * Sequencing facilities return reads in layouts that cannot be covered by one
+ * glob:
  * nested per-sample or per-project directories from bcl2fastq, and several
  * mate-marker conventions. The original pattern here was a single
- * non-recursive `<prefix>*_R1_*.fastq.gz`, which silently found nothing for
- * anything nested — the commonest layout of the lot.
+ * non-recursive `<prefix>*_R1_*.fastq.gz` pattern previously missed nested
+ * directories, which are common.
  *
  * Files are gathered recursively, then the mate markers are tried in order of
  * decreasing specificity, so `_R1_` wins over a bare `_1` and a file like
  * SAMPLE_S1_L001_R1_001.fastq.gz cannot be mistaken for its own mate.
  */
 def findReadPair(read_dir, prefix, sample_name) {
-    // Uncompressed fastq is accepted as well as gzipped: the Snakemake-era
+    // Accept uncompressed FASTQ as well as gzipped FASTQ. The Snakemake-era
     // organizeReads.R took fastq/fq/fastq.gz/fq.gz, and dropping that would
     // quietly break anyone whose reads are not compressed.
     def exts = ['fastq.gz', 'fq.gz', 'fastq', 'fq']
 
-    // Tried in order. The Sample column is a fallback because reads are often
+    // Try prefixes in this order. The Sample column is a fallback because reads
     // already renamed by the time the pipeline is re-run over them, in which
     // case the File value no longer appears in any filename — another
     // behaviour inherited from organizeReads.R.
@@ -50,14 +51,14 @@ def findReadPair(read_dir, prefix, sample_name) {
         out.unique { it.toString() }.sort { it.name }
     }
 
-    // findResult rather than a for/break loop: Nextflow's strict parser (25.x+)
+    // Use findResult rather than a for/break loop: Nextflow's strict parser (25.x+)
     // rejects `for` loops in pipeline scripts outright.
     def hits = [prefix, sample_name].findAll { it }
                                     .findResult { stem -> gather.call(stem) ?: null } ?: []
 
-    // Per-sample problems return a reason instead of throwing. A library that
-    // failed to sequence is routine, and losing a whole run's worth of good
-    // samples to one bad row helps nobody — they are reported and skipped.
+    // Return a reason for per-sample problems instead of throwing. A library may
+    // legitimately fail sequencing; report and skip that sample so other samples
+    // can proceed.
     // Problems with the run as a whole still stop the pipeline.
     if (!hits) {
         return [null, "no read files found matching ${prefix}* or ${sample_name}*"]
@@ -82,7 +83,8 @@ def findReadPair(read_dir, prefix, sample_name) {
     }
     if (resolved) return resolved
 
-    // Last resort, and what organizeReads.R did for every sample: with exactly
+    // As a last resort, as organizeReads.R did for every sample, use sorted order
+    // when exactly
     // two files and no recognised marker, take them in sorted order. Every
     // convention in use puts the first mate first alphabetically, so this is
     // usually right — but it is a guess, so say so rather than let a silent
@@ -104,12 +106,12 @@ def findReadPair(read_dir, prefix, sample_name) {
 /*
  * Read a boolean parameter without trusting its type.
  *
- * Nextflow used to coerce a command-line `--flag false` to a real boolean by
+ * Older Nextflow versions coerced a command-line `--flag false` to a boolean by
  * matching the type of the config default. From 25.x it does not: the value
- * arrives as the STRING "false", and every non-empty string is truthy in
- * Groovy. So `if (params.wfabc)` fires when wfabc was explicitly disabled, and
- * worse, `--run_irma false` would silently RUN IRMA — a wrong result rather
- * than an error. Tested directly: 24.10.4 coerces, 26.04.3 does not.
+ * receives the string "false", and every non-empty string is truthy in Groovy.
+ * Thus `if (params.wfabc)` evaluates true when explicitly disabled, and
+ * `--run_irma false` would run IRMA instead of reporting an error. This behavior
+ * was observed in 26.04.3 but not 24.10.4.
  */
 def asBool(value) {
     if (value instanceof Boolean) return value
@@ -117,7 +119,8 @@ def asBool(value) {
 }
 
 /*
- * Is a program switched on? A top-level function, NOT a closure assigned to a
+ * Return whether a program is enabled. This must be a top-level function, not a
+ * closure assigned to a
  * local inside the workflow. The strict parser resolves `progOn(...)` as a call
  * to a FUNCTION, so a closure of that name is reported "not defined" and the
  * whole script fails to compile — every dependency check below it included.
@@ -128,18 +131,15 @@ def progOn(String key) {
 }
 
 /*
- * The numeric sibling of asBool, and it exists for the same reason — the same
- * 25.x change, one type over.
+ * Numeric counterpart to asBool; it handles the same Nextflow parameter change
+ * for numeric values.
  *
- * A param given on the command line arrives as a STRING. For booleans that gave
- * the trap above. For numbers it is worse than truthy, because Groovy defines
- * String * Integer as REPETITION: "0.01" * 100 is not 1, it is "0.01" written
- * out one hundred times, and .toInteger() then throws on the 400-character
- * result. That is exactly how FLUMUT_LOWFREQ died on the swine WGS run, and
- * because the launcher ALWAYS passes --flumut_freq_threshold, it would have
- * died the same way for every user on every run.
+ * Command-line parameters arrive as strings. For numeric values, Groovy defines
+ * String * Integer as repetition: "0.01" * 100 is a repeated string, not 1, and
+ * .toInteger() then fails. The launcher always passes
+ * --flumut_freq_threshold, so direct arithmetic on params is unsafe.
  *
- * Never do arithmetic on a params value directly. Put it through here.
+ * Convert every numeric parameter through this function before arithmetic.
  */
 def asNum(value, fallback = 0) {
     if (value instanceof Number) return value
@@ -196,7 +196,7 @@ def helpMessage() {
 /* ==========================================================================
  * Reference preparation
  * --------------------------------------------------------------------------
- * The Snakemake version used five separate rules and a whole second snakefile
+ * The Snakemake version used five separate rules and a second snakefile
  * invocation for this. All four indexing steps are seconds-long and always run
  * together, so splitting them only adds scheduling overhead.
  * ========================================================================== */
@@ -204,12 +204,12 @@ process PREPARE_REFERENCE {
     tag   "reference"
     label 'process_low'
     publishDir "${params.outdir}/Reference", mode: params.publish_mode
-    /* findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa — the old bash
+    /* findAAChanges.R reads ${OUTPUT_DIRECTORY}/reference.fa. The old Bash
      * driver copied the reference to the output root before calling snakemake,
      * so the R scripts depend on it being there. Reproduce that placement.
      *
-     * saveAs returns null — i.e. publish nothing — when the reference the user
-     * pointed at IS that file already. Without the guard this process
+     * saveAs returns null when the user-supplied reference is already that file.
+     * Without the guard this process
      * republishes its own input on top of itself: same bytes, new mtime, and
      * Nextflow's default cache hash includes an input's last-modified time. So
      * PREPARE_REFERENCE could never be cached, every downstream task saw a
@@ -239,10 +239,10 @@ process PREPARE_REFERENCE {
 
     script:
     """
-    # A reference written on Windows, or downloaded from GISAID, carries CRLF
+    # A reference written on Windows or downloaded from GISAID may contain CRLF
     # line endings. samtools faidx, Biostrings and the python scripts all drop
     # the CR, but bwa's FASTA reader keeps it as a sequence character. Positions
-    # after a CR then shift by one per preceding CR, so mpileup compares each
+    # after a CR shift by one per preceding CR, so mpileup compares each
     # read base against the wrong reference base and the callers report most of
     # the segment as fixed variants. Normalising here covers every tool, because
     # this reference.fa is the copy that gets indexed, mapped against and
@@ -322,7 +322,7 @@ process IRMA {
     # Nextflow actually asked the scheduler for removes the guesswork.
     export LOCAL_PROCS_OVERRIDE=${task.cpus}
 
-    # TMP in an IRMA config must be an ABSOLUTE path that already exists.
+    # TMP in an IRMA configuration must be an absolute path that already exists.
     #
     # IRMA builds its working path straight from it —
     #     ppath="\$TMP"/<user>/IRMAv<version>/<run>-<token>
@@ -332,7 +332,7 @@ process IRMA {
     # table and consensus is empty, and IRMA still exits 0. Measured on one
     # sample: relative TMP gave 0 segments, absolute gave all 8.
     #
-    # The staged config is a symlink into another directory, so rewrite a copy.
+    # The staged configuration is a symlink into another directory, so rewrite a copy.
     if [ -f irma_config.sh ]; then
         cp irma_config.sh run_irma_config.sh
         irma_tmp=\$(sed -n 's/^[[:space:]]*TMP=//p' run_irma_config.sh | tail -1 | tr -d "\\"'")
@@ -352,16 +352,15 @@ process IRMA {
 
     IRMA FLU ${cfg_arg} ${r1} ${r2} ${sample}
 
-    # IRMA returns 0 even when it has failed outright: it creates its whole
+    # IRMA returns 0 even after an outright failure: it creates its output
     # output skeleton (amended_consensus/, tables/, logs/ ...) and exits
     # successfully with every directory empty. Nextflow then sees a green task,
     # organizeIRMA.R finds no fasta to collect, and FluMut is skipped silently
     # for want of input. The first anyone knows is a missing result days later.
     #
-    # So check the one thing that matters — that a consensus was actually
-    # produced. Not fatal on its own, because a sample with too few flu reads
-    # legitimately assembles nothing; but if this fires for EVERY sample the
-    # cause is IRMA itself, and .command.err will say so.
+    # Check that a consensus was produced. This is not fatal for an individual
+    # sample because insufficient reads can legitimately produce no assembly;
+    # if it occurs for every sample, .command.err identifies the IRMA failure.
     if ! ls ${sample}/*.fasta >/dev/null 2>&1; then
         echo "WARNING: IRMA produced no consensus sequence for ${sample}." >&2
         echo "         A sample with too few influenza reads can do this legitimately." >&2
@@ -425,7 +424,7 @@ process ADD_READ_GROUPS {
 }
 
 /*
- * bwa mem is invoked WITHOUT -t, deliberately.
+ * Invoke bwa mem without -t.
  *
  * bwa estimates the insert-size distribution per read batch, and batch
  * composition depends on the thread count — so -t shifts pairing decisions for
@@ -551,7 +550,7 @@ process GENOTYPE_GVCF {
     tuple val(sample), path('gatk4-unfiltered-genotypes.vcf'), emit: vcf
 
     script:
-    // NOTE: the Snakemake version passed --use-new-qual-calculator, which was
+    // The Snakemake version passed --use-new-qual-calculator, which was
     // removed in GATK 4.1+ (it is the default behaviour now). Dropped here.
     """
     gatk GenotypeGVCFs -V ${vcf} -R ${ref} -O gatk4-unfiltered-genotypes.vcf
@@ -586,14 +585,14 @@ process FILTER_VARIANTS {
     tuple val(sample), path('gatk4-filtered-snps.vcf'), path('gatk4-filtered-indels.vcf'), emit: vcf
 
     script:
-    // The Snakemake filter_INDEL rule existed but never ran: its output was not
+    // The Snakemake filter_INDEL rule existed but never ran because its output was not
     // listed in `rule all`, so Snakemake never requested it. It runs here.
     //
-    // VariantFiltration flags a record when the expression is TRUE, so every
-    // expression below names the condition for a BAD record.
+    // VariantFiltration flags a record when the expression is true, so each
+    // expression below names the condition for a failing record.
     //
-    // FS and SOR were INVERTED until 2026-08-08 — written "FS<60.0" and
-    // "SOR<3.0" when it is HIGH values that indicate strand bias. The two
+    // FS and SOR were inverted until 2026-08-08: the filters were written as
+    // "FS<60.0" and "SOR<3.0", although high values indicate strand bias. The two
     // filters therefore fired on precisely the records with clean strand
     // statistics, which is why not one record passed on either dataset here:
     // 0 of 100 on the swine run and 0 of 1,442 on the avian test data. The 96
@@ -607,10 +606,11 @@ process FILTER_VARIANTS {
     // variant type. Indels legitimately take a looser FS and ReadPosRankSum
     // than SNPs, which the indel block had not reflected.
     //
-    // GATK's thresholds are tuned for DIPLOID GERMLINE data at ~30x, and almost
+    // GATK's thresholds are tuned for diploid germline data at approximately 30x,
+    // while almost
     // none of those assumptions hold here — haploid calling, ~1,770x median
     // depth, balanced strand, and eight short segments that map uniquely.
-    // Measured over 1,542 real records (100 swine + 1,442 avian), FOUR of the
+    // In 1,542 real records (100 swine + 1,442 avian), four of the
     // seven can never fire on data of this shape:
     //
     //   FS>60             0 records   max observed FS  24.5
@@ -618,17 +618,17 @@ process FILTER_VARIANTS {
     //   MQRankSum<-12.5   0 records   min observed     -0.93
     //   ReadPosRankSum<-8 0 records   min observed     -3.36
     //
-    // They are kept anyway: inert costs nothing, they preserve GATK's own
+    // They are retained because they preserve GATK's convention and remain
     // convention, and they would start doing work on a differently prepared
     // library. The RankSums additionally have no value on two thirds of records
     // by construction — a haploid hom-alt call has no reference reads to rank
     // against — and a filter on a mostly-absent annotation is not a filter.
     //
-    // QD is the one number tuned to this data rather than inherited. GATK's
+    // QD is the only threshold tuned to this data rather than inherited. GATK's
     // QD<2.0 flagged 3 of 1,542. The distribution is sharply bimodal: 1,446 sit
     // at QD>=25 and the tail is sparse (12 records in 10-15, 8 in 15-20), so
     // QD<15.0 lands in genuinely empty space and flags 38 (2.5%). It is a real
-    // quality signal here and not a depth artefact — the concern was that GATK's
+    // quality signal here, not a depth artifact. The concern was that GATK's
     // QUAL saturates at extreme depth and would depress QD for the DEEPEST
     // sites, but the relationship runs the other way: mean depth is 252 for
     // QD<15 against 1,849 for QD>=25, so low QD selects THIN calls, which is
@@ -638,9 +638,9 @@ process FILTER_VARIANTS {
     // VCF is not consumed by the variant table, so there is no basis here for
     // moving it.
     //
-    // No truth set exists for any of this, so these are distribution-based
-    // judgements. That is also why nothing is DROPPED on the strength of them:
-    // the column annotates, and FluLens is where a reader chooses what to hide.
+    // No truth set exists, so these thresholds are distribution-based judgments.
+    // No records are dropped on this basis; the column annotates the calls, and
+    // FluLens determines which records to hide.
     """
     gatk VariantFiltration -R ${ref} -V ${snps} -O gatk4-filtered-snps.vcf \\
         -filter "QUAL<30.0"            --filter-name "QUAL" \\
@@ -688,16 +688,16 @@ process LOFREQ {
 /*
  * iVar — the third caller.
  *
- * Deliberately NOT given a GFF. `ivar variants -g` annotates amino acids by
+ * Do not provide a GFF. `ivar variants -g` annotates amino acids by
  * translating from the start of each reference sequence in frame 1, which is
  * the exact `ceiling(POS/3)` mistake convertVCFtoTable.R was fixed for: it is
  * right for the eight primary ORFs and meaningless for M2, NEP, PA-X and
  * PB1-F2, and it does not fail — it returns a plausible residue for a codon
  * that does not exist. Flumina annotates through Scripts/fluORFs.R, which walks
- * the real coding intervals, so iVar contributes NUCLEOTIDE calls only and the
+ * the real coding intervals, so iVar contributes nucleotide calls only and the
  * amino-acid columns come from the same place they do for every other caller.
  *
- * mpileup flags, and why each one is not a default:
+ * mpileup flags and their purposes:
  *   -aa       every position, including zero-coverage ones, so iVar's own
  *             depth filter is what removes them rather than mpileup's silence
  *   -A        count anomalous read pairs. LoFreq's DP4 was pinned to REQUIRE
@@ -706,12 +706,12 @@ process LOFREQ {
  *             tuned to agree by construction
  *   -B        no BAQ. On by default and it re-scores base qualities around
  *             indels, which suppresses real low-frequency SNPs next to them
- *   -d 0      no depth cap. The default 8000 would silently truncate the deep
+ *   -d 0      no depth cap. The default 8000 would truncate the deep
  *             libraries here — MC-495 runs to 1.4 million matched reads
  *   -Q 0      let iVar apply the quality threshold via -q, rather than
  *             filtering twice at two different values
  *
- * Thresholds come from the same params LoFreq and the R stage use, so the three
+ * Thresholds come from the same parameters used by LoFreq and the R stage, so the three
  * callers are held to one set of numbers.
  */
 process IVAR {
@@ -774,7 +774,7 @@ process GATHER_SAMPLE_VCFS {
 }
 
 /*
- * Per-position depth in REFERENCE coordinates. Runs on every sample of every
+ * Per-position depth in reference coordinates. Run for every sample of every
  * run — see the workflow body for why it stopped being conditional.
  *
  * It was built for the low-frequency FluMut screen and now serves two consumers
@@ -796,7 +796,7 @@ process GATHER_SAMPLE_VCFS {
  * exists to avoid. `samtools depth -a` on the reference-aligned BAM is already
  * in the coordinate system the mask has to apply to.
  *
- * -a emits EVERY position including zero-coverage ones, which is the entire
+ * -a emits every position, including zero-coverage positions, which is the
  * point — without it the uncovered positions are simply absent and
  * indistinguishable from a truncated file. -Q 0 because the mask is asking
  * "was there any read here at all", not "was there a confident read".
@@ -804,7 +804,7 @@ process GATHER_SAMPLE_VCFS {
  * The whole reference is 13,133 bp, so this is ~13k lines per sample and costs
  * nothing to keep.
  *
- * FOUR columns, not three: contig, position, raw depth, and the depth the
+ * Four columns are emitted: contig, position, raw depth, and the depth the
  * variant callers can actually see. MIN_DEPTH is tested against the second one
  * — iVar gets it as -m against a pileup with overlapping mates zeroed and -q
  * applied — so publishing the raw count alone stated the floor against a number
@@ -815,7 +815,7 @@ process GATHER_SAMPLE_VCFS {
 process DEPTH_PROFILE {
     tag "$sample"
     label 'process_low'
-    // Published, because both consumers that matter are outside this pipeline:
+    // Publish this file because both consumers are outside this pipeline:
     // FluLens is the only component that maps FluMut's numbering back to
     // reference positions, and the MIN_DEPTH gap can only be read from the file
     // itself, since nothing in the run reports it.
@@ -833,7 +833,8 @@ process DEPTH_PROFILE {
     # Named off the sample so a sample called "raw" cannot collide with it.
     samtools depth -a -Q 0 ${bam} > '${sample}.raw-depth.tmp'
 
-    # Must stay byte-for-byte the mpileup IVAR runs — if the two drift, column 4
+    # Keep this command byte-for-byte identical to the iVar mpileup command. If
+    # the commands diverge, column 4
     # stops being the quantity -m is tested against. Change them together.
     samtools mpileup -aa -A -B -d 0 -Q 0 --reference ${ref} ${bam} \\
       | python3 ${scripts}/visible_depth.py \\
@@ -846,7 +847,7 @@ process DEPTH_PROFILE {
 /*
  * Downstream R analysis — fully relocatable.
  *
- * Every input is staged INTO this task's work directory and the generated
+ * Every input is staged into this task's work directory, and the generated
  * config.cfg sets OUTPUT_DIRECTORY=".", so the R scripts resolve everything
  * relative to wherever they happen to run. Nothing references a host path,
  * which is what lets this execute unchanged on a laptop, an HPC node, or an
@@ -878,16 +879,16 @@ process R_ANALYSIS {
     def irma_step = asBool(params.run_irma)
         ? "Rscript ${scripts}/organizeIRMA.R config.cfg"
         : "echo 'IRMA disabled, skipping organizeIRMA.R'"
-    // Both of these are optional. When not supplied nothing is staged, so the
+    // Both inputs are optional. When not supplied, nothing is staged, so the
     // input variable is an empty list and would render as an empty string —
     // write the literal NULL the R scripts test for instead.
     def aa_db_cfg    = params.aa_db    ? "${aa_db}"    : 'NULL'
     def metadata_cfg = params.metadata ? "${metadata}" : 'NULL'
-    // Grouping is a column OF the metadata, so without metadata there is
+    // Grouping uses a metadata column, so without metadata there is
     // nothing to group by and outputSummary.R would fail looking for it.
     def group_cfg    = params.metadata ? "${params.group_names}" : 'NULL'
     """
-    # Paths are relative to this work dir — never the submitting host.
+    # Paths are relative to this work directory, never to the submitting host.
     cat > config.cfg <<'CFG_END'
 OUTPUT_DIRECTORY="."
 REFERENCE_FILE="${reference}"
@@ -898,7 +899,7 @@ MIN_DEPTH="${params.min_depth}"
 MIN_QUALITY="${params.min_quality}"
 MIN_ALLELE_FREQUENCY="${params.min_allele_frequency}"
 MIN_ALT="${params.min_alt}"
-# runSNPGenie.R reads these two under different names than the rest of the
+# runSNPGenie.R reads these parameters under different names from the rest of the
 # pipeline (MIN_ALLELE_FREQ / MIN_COVERAGE, not MIN_ALLELE_FREQUENCY /
 # MIN_DEPTH). Writing both spellings is what makes SNPGenie actually honour the
 # same depth and frequency thresholds as every other step; without them it
@@ -906,8 +907,8 @@ MIN_ALT="${params.min_alt}"
 MIN_ALLELE_FREQ="${params.min_allele_frequency}"
 MIN_COVERAGE="${params.min_depth}"
 DEDUP_KEYS="${params.dedup_keys}"
-# Programs that ran, for the record. The R stage reads the thresholds above, not
-# these switches; they document what produced this run.
+# Record which programs ran. The R stage reads the thresholds above; these
+# switches document how this run was produced.
 IRMA="${asBool(params.run_irma) ? 'TRUE' : 'FALSE'}"
 LOFREQ="${asBool(params.run_lofreq) ? 'TRUE' : 'FALSE'}"
 GATK4="${asBool(params.run_gatk4) ? 'TRUE' : 'FALSE'}"
@@ -1027,7 +1028,7 @@ process WFABC {
  * (Giussani et al. 2025, Virus Evolution: doi 10.1093/ve/veaf011).
  *
  * FluMut's default --name-regex is (?P<sample>.+)_(?P<segment>.+): it expects
- * the sample name to be PART OF the header (e.g. >mysample_HA). IRMA's
+ * the sample name to be part of the header (e.g. >mysample_HA). IRMA's
  * per-sample consensus headers carry no sample name at all — just a bare
  * segment code like >A_HA_H5 — so rename_for_flumut.R injects the sample
  * name from each file's basename and normalises the segment code to
@@ -1038,13 +1039,13 @@ process WFABC {
  * FluMut runs once as a single batch across every sample's consensus, which
  * is its intended usage — not once per sample.
  *
- * DELIBERATELY NOT using `flumut --update`: FluMutDB is a living database, and
- * calling --update here would mean the SAME pipeline version can report
+ * Do not use `flumut --update`: FluMutDB is a living database, and calling
+ * --update here would allow the same pipeline version to report
  * different markers on different days with no record of why — the exact
  * silent-nondeterminism failure this pipeline's reproducibility work (pinned
  * envs, trace.txt, timeline.html) exists to prevent.
  *
- * Pinning the TOOL is not enough, and this comment used to claim otherwise.
+ * Pinning the tool is not enough.
  * flumutdb is a separate conda package: flumut=0.6.5 resolves with 6.5 or 6.7
  * depending on when the image was built, and the image and a local env built
  * from the same environment.yaml were found carrying different ones. So the
@@ -1082,7 +1083,7 @@ process FLUMUT {
 
     script:
     /*
-     * Screening the REFERENCE too, then removing its own findings.
+     * Screen the reference as well, then remove its own findings.
      *
      * FluMut reports every marker a sequence carries, and the reference
      * carries plenty. Those appear in every sample by construction and say
@@ -1092,7 +1093,7 @@ process FLUMUT {
      * information, and it was buried under the other 2,514.
      *
      * markers.tsv drops the rows the reference also has. mutations.tsv is a
-     * wide matrix and instead drops only the columns where EVERY sample
+     * wide matrix and instead drops only the columns where every sample
      * carries the reference residue — dropping by "the reference has this
      * marker" would throw away reversions, and a sample that LOSES a reference
      * marker emits no marker row at all, so that table is the only place the
@@ -1129,11 +1130,11 @@ process FLUMUT {
         echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
     fi
 
-    # Runs regardless of the subtraction above, because it answers a different
+    # Run regardless of the subtraction above because it answers a different
     # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
     # they are read against the wrong ruler AND the proteins have diverged too
     # far for equivalence to be assumed. Internal-gene markers are unaffected.
-    # IRMA-consensus-contigs is passed as a SECOND subtype source. IRMA writes the
+    # IRMA-consensus-contigs is passed as a second subtype source. IRMA writes the
     # subtype it assigned into each consensus header (>A_HA_H5, >A_NA_N1), so a
     # reference with bare A_HA / A_NA names — which is the repo's own reference,
     # and the bundled H5N1 test_dataset — can still be resolved instead of being
@@ -1209,7 +1210,7 @@ process FLUMUT_LOWFREQ {
 
     # No rename step here: apply_lofreq_to_consensus.R already writes
     # >sample_SEGMENT headers. rename_for_flumut.R takes the sample name from
-    # the FILENAME, so handing it one combined FASTA renamed every sample to
+    # the filename, so handing it one combined FASTA would rename every sample to
     # "mutated" and lost sample identity completely.
     cp mutated.fasta batch.fasta
 
@@ -1239,7 +1240,7 @@ process FLUMUT_LOWFREQ {
         echo "flumut_subtract_reference disabled or no findings — raw flumut output kept" >&2
     fi
 
-    # Runs regardless of the subtraction above, because it answers a different
+    # Run regardless of the subtraction above because it answers a different
     # question: HA/NA markers are numbered for H5/N1 specifically, so off-subtype
     # they are read against the wrong ruler AND the proteins have diverged too
     # far for equivalence to be assumed. Internal-gene markers are unaffected.
@@ -1253,7 +1254,7 @@ process FLUMUT_LOWFREQ {
 }
 
 /*
- * Where FluMut's marker numbering lands on THIS run's reference.
+ * Map FluMut marker numbering onto this run's reference.
  *
  * A marker reads `HA1-5:G224S` — residue 224 of HA1, in the numbering of
  * FluMut's own reference. Nothing in that string says where residue 224 falls in
@@ -1264,12 +1265,12 @@ process FLUMUT_LOWFREQ {
  * no single offset is correct across the protein. On the swine H3N2 run the best
  * shift for HA1 explained 8 of 14 markers — neither a fit nor a clean failure.
  *
- * FluMut ships its reference sequences and their CDS annotations in
+ * FluMut ships its reference sequences and CDS annotations in
  * flumut_db.sqlite, so this is a fact to be read and aligned rather than a
  * parameter to be estimated. Aligning protein-to-protein absorbs the indels,
  * which is what makes HA and NA work on any subtype instead of only on H5N1.
  *
- * Validated against FluMut's OWN placement — reference_mutations.tsv states the
+ * Validated against FluMut's own placement: reference_mutations.tsv states the
  * residue it found at each marker position in this reference, and the map agreed
  * at 112 of 112 positions across an H3N2 and an H5N1 run, including every
  * cross-subtype HA/NA position that no offset could place.
@@ -1317,7 +1318,7 @@ process FLUMUT_POSITION_MAP {
 }
 
 /*
- * Where IRMA's CONSENSUS lands on this reference — the same argument as
+ * Map IRMA's consensus onto this reference, using the same rationale as
  * FLUMUT_POSITION_MAP, one level down.
  *
  * IRMA's consensus is the one FluMut screens. Anything that instead paints
@@ -1333,7 +1334,7 @@ process FLUMUT_POSITION_MAP {
  * is therefore aligned per sample per segment, once, here, rather than
  * re-inferred by every reader.
  *
- * IRMA_results is staged for the coverage tables, not the assemblies: the depth
+ * IRMA_results is staged for the coverage tables, not the assemblies. The depth
  * floor has to be applied to the alignment that PRODUCED the call. The two
  * depths disagree exactly where IRMA is interesting — at MC-732 A_NS positions
  * 1-5 IRMA has 56-61x where BWA has 2-3x.
@@ -1409,7 +1410,8 @@ workflow {
     }
 
     /*
-     * Program dependencies. A program set TRUE must not depend on one set FALSE,
+     * Program dependencies. An enabled program must not depend on a disabled
+     * program,
      * and at least one variant caller must run. These are the same requirements
      * the config.cfg "Programs to run" section documents.
      */
@@ -1436,7 +1438,7 @@ workflow {
     /*
      * Build the sample channel straight from the rename CSV.
      *
-     * This replaces organizeReads.R, which physically COPIED every raw fastq
+     * This replaces organizeReads.R, which physically copied every raw FASTQ
      * into organized-reads/ — doubling disk usage before analysis even started.
      * Nextflow stages by symlink instead, so nothing is duplicated.
      */
@@ -1572,12 +1574,12 @@ workflow {
     depth_files = DEPTH_PROFILE(final_bam, ref,
                                 file("${projectDir}/Scripts")).depth.collect()
 
-    // The R stage summarises across ALL samples, so it must wait for every one.
+    // The R stage summarizes across all samples, so it must wait for every one.
     // Group each sample's VCFs into a directory named after it, then collect —
     // this is both the completion gate and the vcf_files/<sample>/ layout that
     // convertVCFtoTable.R parses sample names out of.
     //
-    // Fold every ENABLED caller into one (sample, [files]) tuple, in the same
+    // Fold every enabled caller into one (sample, [files]) tuple, in the same
     // GATK4, LoFreq, iVar order the all-on default produced. `join` is used, not
     // `mix`, so a sample must be present in every enabled caller to proceed —
     // the callers all derive from final_bam, so their sample sets match.

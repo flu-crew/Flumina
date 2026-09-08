@@ -25,7 +25,7 @@
 ####                           the binaries are already on PATH)
 
 args = commandArgs(trailingOnly = TRUE)
-#args = "config.cfg"
+# args = "config.cfg"  # Use a local configuration file during development.
 
 #############################################
 #### Parse configuration file
@@ -81,9 +81,9 @@ min.allele.frequency  = as.numeric(cfg("MIN_ALLELE_FREQUENCY", "0.015"))
 # WFABC hangs on sites where the allele is pinned at a frequency boundary (near
 # fixation/loss): the ABC sampler's acceptance rate approaches zero so wfabc_2
 # can run effectively forever. Two guards handle this (see the run loop below):
-#  1. Pre-filter: skip a site if the allele is near-fixed/near-lost at EVERY
+#  1. Pre-filter: skip a site if the allele is nearly fixed or lost at every
 #     time point (no identifiable selection; boundary-crossing swings are kept).
-#  2. Timeout watchdog: kill+skip any individual wfabc call exceeding the limit.
+#  2. Timeout watchdog: terminate and skip any WFABC call exceeding the limit.
 fixation.cutoff = as.numeric(cfg("FIXATION_CUTOFF", "0.98"))  # all freq >= cutoff or <= 1-cutoff
 wfabc.timeout   = as.numeric(cfg("WFABC_TIMEOUT", "120"))     # seconds per wfabc call
 max.refine.iter = as.numeric(cfg("MAX_REFINE_ITER", "10"))    # cap on the ks refinement loop
@@ -117,18 +117,18 @@ dir.create(output.directory, showWarnings = FALSE)
 #### Convert LoFreq VCF files to a table
 #############################################
 
-#the string or name of the VCF file for data analysis
+# VCF file name or path for analysis.
 vcf.string = "lofreq-called-variants.vcf"
 
-#Get multifile databases together
+# Collect the multi-file inputs.
 all.files = list.files(vcf.directory, recursive = T)
 vcf.files = all.files[grep(paste0(vcf.string, "$"), all.files)]
 
-#Collects the super cool data
+# Initialize the collected variant data.
 header.data = c("method", "sample", "locus", "position", "reference",
                 "alternative", "quality", "depth", "map_quality", "allele_frequency", "aa_position")
 
-#Sets up data collection data.frame
+# Initialize the data frame used to collect records.
 collect.data = data.table::data.table(matrix(as.numeric(0),
                                              nrow = length(vcf.files)*1000,
                                              ncol = length(header.data)))
@@ -140,16 +140,16 @@ collect.data[, locus:=as.character(locus)]
 collect.data[, reference:=as.character(reference)]
 collect.data[, alternative:=as.character(alternative)]
 
-#Loops through each locus and does operations on them
+# Iterate over loci and process their records.
 x = 1
 for (i in seq_along(vcf.files)){
 
-  #Counts comment lines to find first line
+  # Count comment lines to locate the first data line.
   VCF = file(paste0(vcf.directory, "/", vcf.files[i]), "r")
   skip = 0
   line = readLines(VCF, 1)
 
-  #Finds contig line
+  # Locate the contig definition line.
   while(!grepl("#CHROM", line)) {
     skip = skip + 1
     line = readLines(VCF, 1)
@@ -157,7 +157,7 @@ for (i in seq_along(vcf.files)){
 
   close(VCF)
 
-  #Reads in VCF after finding which lines to skip
+  # Read the VCF after determining how many lines to skip.
   VCF = read.table(paste0(vcf.directory, "/", vcf.files[i]), skip = skip, comment.char = "", header = TRUE,
                    stringsAsFactors = FALSE, check.names = FALSE)
 
@@ -187,17 +187,17 @@ for (i in seq_along(vcf.files)){
     data.table::set(collect.data, i = as.integer(x), j = match("alternative", header.data), value = VCF$ALT[j] )
     data.table::set(collect.data, i = as.integer(x), j = match("quality", header.data), value = VCF$QUAL[j] )
 
-    #find depth
+    # Extract the read depth.
     depth.val = as.numeric(gsub(";", "", gsub(";.*", "", gsub(".*DP=", "", VCF[j,]$INFO))) )
     data.table::set(collect.data, i = as.integer(x), j = match("depth", header.data), value = depth.val)
 
-    #find map quality
+    # Extract the mapping quality.
     if (length(grep("MQ=", VCF[j,]$INFO)) != 0){
       mq.val = as.numeric(gsub(";.*", "", gsub(".*;MQ=", "", VCF[j,]$INFO)))
     } else { mq.val = NA }
     data.table::set(collect.data, i = as.integer(x), j = match("map_quality", header.data), value = mq.val)
 
-    #find allele frequency
+    # Extract the allele frequency.
     freq.val = as.numeric(gsub(";.*", "", gsub(".*;AF=", "", VCF[j,]$INFO)))
     data.table::set(collect.data, i = as.integer(x), j = match("allele_frequency", header.data), value = freq.val)
 
@@ -207,22 +207,21 @@ for (i in seq_along(vcf.files)){
     # position, and expanding a position into two products would duplicate the
     # series. Only the PRIMARY product is annotated here.
     x = x + 1
-  }#end j loop
+  } # End of j loop.
 
-}#end i loop
+} # End of i loop.
 
-#Removes empty samples
+# Remove samples with no records.
 collect.data = collect.data[collect.data$sample != 0,]
 collect.data = collect.data[collect.data$locus != 0,]
 
-#Sometimes the amino acid T will turn into TRUE
+# Prevent amino acid T from being converted to TRUE.
 collect.data$alternative[collect.data$alternative == "TRUE"] = "T"
 collect.data$reference[collect.data$reference == "TRUE"] = "T"
 
-#Annotate against the primary product's real coding interval. A call outside it
-#(past the M1 or NS1 stop codon, say) gets NA rather than a fabricated codon
-#number; the trajectory itself is unaffected, since that is keyed on the
-#nucleotide position.
+# Annotate against the primary product's coding interval. A call outside it
+# (for example, past the M1 or NS1 stop codon) receives NA rather than a fabricated
+# codon number; the trajectory remains keyed by nucleotide position.
 collect.data = as.data.frame(collect.data, stringsAsFactors = FALSE)
 wfabc.reference = flu_read_fasta(reference.path)
 collect.data = flu_annotate_positions(collect.data, wfabc.reference,
@@ -237,24 +236,24 @@ cat(sprintf("WFABC amino-acid annotation: %d of %d calls fall inside their prima
 
 if (is.null(metadata.file) != TRUE){
   meta.sample = read.csv(metadata.file)
-}#end if
+} # End of if block.
 
-#lists sample files
+# List the sample files.
 sample.names = unique(collect.data$sample)
 
-#combines all the individual samples together
+# Combine all individual sample tables.
 all.samples = c()
 for (i in seq_along(sample.names)){
 
   sample.data = collect.data[collect.data$sample %in% sample.names[i],]
 
-  #Combines metadata if included
+  # Combine metadata when it is available.
   if (is.null(metadata.file) != TRUE){
     sample.data = merge(sample.data, meta.sample, by.x = "sample", by.y = "Sample")
-  }#end if
+  } # End of if block.
 
   all.samples = rbind(all.samples, sample.data)
-}#end i loop
+} # End of i loop.
 
 #############################################
 #### Find amino acid changing sites and associate the two
@@ -274,12 +273,12 @@ for (lc in names(wfabc.reference)){
 
 final.data = c()
 for (i in seq_along(sample.names)){
-  #Subsets to sample data
+  # Subset the data for the current sample.
   sample.data = all.samples[all.samples$sample %in% sample.names[i],]
-  #gathers gene names
+  # Obtain the gene names.
   gene.names = unique(all.samples$locus)
 
-  #loops through each gene to assess amino acids
+  # Iterate over genes to assess amino-acid changes.
   new.gene = c()
   for (j in seq_along(gene.names)){
 
@@ -293,34 +292,34 @@ for (i in seq_along(sample.names)){
     gene.data$alternative_aa = "NA"
     gene.data$aa_changing = "NA"
 
-    #Primary-product coding sequence for this segment
+    # Obtain the primary-product coding sequence for this segment.
     ref.cds = wfabc.cds[[gene.names[j]]]
     if (is.null(ref.cds)){ new.gene = rbind(new.gene, gene.data); next }
 
-    #loops through each row in the gene data to translate
+    # Translate each variant in the gene data.
     for (k in 1:nrow(gene.data)){
 
-      #Outside the primary ORF there is no codon to report
+      # There is no codon to report outside the primary ORF.
       cds.pos = gene.data$cds_position[k]
       aa.pos  = gene.data$aa_position[k]
       if (is.na(cds.pos) || is.na(aa.pos)) next
 
-      #Swap the alternative base in at its CDS index
+      # Substitute the alternative base at its CDS index.
       alt.cds = ref.cds
       substr(alt.cds, cds.pos, cds.pos) = as.character(gene.data$alternative[k])
 
-      #Subseqs the codons out
+      # Extract the codon.
       cod.start = (aa.pos - 1) * 3 + 1
       gene.data$reference_codon[k]   = substr(ref.cds, cod.start, cod.start + 2)
       gene.data$alternative_codon[k] = substr(alt.cds, cod.start, cod.start + 2)
 
       if (nchar(gene.data$reference_codon[k]) < 3) next
 
-      #translates codon
+      # Translate the codon.
       gene.data$reference_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$reference_codon[k], ""))))
       gene.data$alternative_aa[k] = as.character(seqinr::translate(unlist(strsplit(gene.data$alternative_codon[k], ""))))
 
-      #Checks if it changed the amino acid
+      # Determine whether the amino acid changed.
       if (gene.data$reference_aa[k] == gene.data$alternative_aa[k]){
         gene.data$aa_changing[k] = "NO"
       } else { gene.data$aa_changing[k] = "YES"}
@@ -333,9 +332,9 @@ for (i in seq_along(sample.names)){
 
   final.data = rbind(final.data, new.gene)
 
-}#end i
+}# End of i loop.
 
-#Save large tab delimited table of all the amino acids
+# Save the complete tab-delimited amino-acid table.
 write.table(final.data, paste0(output.directory, "/all_sample_amino_acids.txt"),
             row.names = F, quote = F, sep = "\t")
 
@@ -351,7 +350,8 @@ if (length(missing.cols) != 0){
        ". Check INDIVIDUAL_COLUMN, TIME_COLUMN and GROUP_NAMES in your config file.")
 }
 
-#Keep variants that belong to an individual and pass the depth / frequency cutoffs
+# Retain variants assigned to an individual that pass the depth and frequency
+# cutoffs.
 wfabc.samples = final.data[is.na(final.data[[individual.column]]) != T,]
 wfabc.samples = wfabc.samples[wfabc.samples$depth >= min.depth,]
 wfabc.samples = wfabc.samples[wfabc.samples$allele_frequency >= min.allele.frequency,]
@@ -396,10 +396,10 @@ for (i in seq_along(sample.names)){
 
       if (any(duplicated(save.data$time_point)) == TRUE){
         if (duplicate.handling == "merge"){
-          # aa_position is NOT a grouping variable, and that is the fix rather
-          # than an optimisation.
+          # aa_position is not a grouping variable; excluding it prevents
+          # aggregate() from dropping valid rows with missing annotations.
           #
-          # aggregate's formula method applies na.omit across EVERY term, so one
+          # aggregate's formula method applies na.omit across every term, so one
           # NA in a grouping column drops the whole row. Since the spliced-ORF
           # correction, aa_position is legitimately NA wherever a call sits
           # outside its segment's primary ORF - MP past the end of M1, NS past
@@ -408,7 +408,7 @@ for (i in seq_along(sample.names)){
           # aggregate died with "no rows to aggregate": measured at A_MP:909 in
           # animal 16, 2 rows in and 0 out.
           #
-          # It was unreachable before that correction because the old
+          # It was unreachable before the correction because the old
           # ceiling(POS/3) always returned a number, so this is a latent crash
           # the ORF fix introduced here and nowhere else. The swine run survived
           # it only by not having a repeat-sampled position outside a primary ORF.
@@ -431,17 +431,17 @@ for (i in seq_along(sample.names)){
 
       abc.data = rbind(abc.data, save.data)
 
-    } #end k loop
+    } # End of k loop.
 
-  }#end j loop
+  } # End of j loop.
 
-}#end i loop
+} # End of i loop.
 
 #############################################
 #### Run WFABC and collect the results
 #############################################
 
-#Collects the super cool data
+# Initialize the result data.
 header.data = c("sample", "locus", "nuc_position", "aa_position", "group", "number_time_points",
                 "Ne_mean", "s_map", "s_lower_bound", "s_upper_bound")
 
@@ -449,9 +449,9 @@ abc.data$generations = abc.data$time_point * generations.per.time
 
 sample.names = unique(abc.data$sample)
 
-#Sets up the results data collection table BEFORE the loop so each value is
-#written into the correct column (an earlier version reused the leftover VCF
-#variant table here, which shifted every value into the wrong column).
+# Initialize the results table before the loop so each value is
+# written into the correct column. An earlier version reused the VCF variant
+# table, which shifted values into incorrect columns.
 collect.data = data.table::data.table(matrix(as.numeric(0),
                                              nrow = nrow(abc.data),
                                              ncol = length(header.data)))
@@ -495,15 +495,16 @@ for (i in seq_along(sample.names)){
       pos.data = locus.data[locus.data$nuc_position %in% pos.names[k],]
       pos.data = pos.data[order(pos.data$time_point), ]
 
-      #Clears outliers
+      # Remove outliers.
       if (nrow(pos.data) >= 3 ){
         pos.data$freq = pos.data$A_allele/pos.data$sample_size
         diff.freq = diff(pos.data$freq)
 
-        # Keep all timepoints by default
+        # Retain all time points by default.
         keep <- rep(TRUE, length(pos.data$freq))
 
-        # Flag middle points where the jump is abnormally large in both directions
+        # Flag intermediate points where the change is abnormally large in both
+        # directions.
         # (uses 'm' as the index, not 'x', so the results row counter is not clobbered)
         for (m in 2:(length(pos.data$freq) - 1)) {
           if (abs(pos.data$freq[m] - pos.data$freq[m - 1]) > 0.3 &&
@@ -512,16 +513,16 @@ for (i in seq_along(sample.names)){
           }
         }
 
-        # Always keep the first and last timepoints
+        # Always retain the first and last time points.
         keep[1] <- TRUE
         keep[length(pos.data$freq)] <- TRUE
 
         pos.data = pos.data[keep,]
       } #end
 
-      #Pre-filter: skip sites where the allele is pinned near one frequency
-      #boundary at EVERY time point (no identifiable selection, and the main
-      #cause of wfabc_2 hangs). Boundary-crossing trajectories are kept.
+      # Pre-filter: skip sites where the allele remains near one frequency
+      # boundary at every time point (no identifiable selection and the main
+      # cause of wfabc_2 hangs). Retain boundary-crossing trajectories.
       site.tag = paste(sample.names[i], locus.names[j], pos.names[k], sep = "/")
       site.freq = pos.data$A_allele / pos.data$sample_size
       if (all(site.freq >= fixation.cutoff) || all(site.freq <= 1 - fixation.cutoff)){
@@ -534,13 +535,13 @@ for (i in seq_along(sample.names)){
       output.file = paste0(output.directory, "/", sample.names[i], "/", locus.names[j], "/", pos.names[k], "/input.txt")
 
       wfabc_data = c()
-      #Header: number of loci, number of time points
+      # Write the header: number of loci and number of time points.
       wfabc_data = append(wfabc_data, paste(length(unique(pos.data$locus)),
                                                    length(pos.data$time_point), sep=" "))
-      #the time points
+      # Write the time points.
       wfabc_data = append(wfabc_data, paste(pos.data$time_point, collapse=","))
 
-      #The total depth and alt allele counts
+      # Write the total depth and alternate-allele counts.
       total_depths = paste(pos.data$sample_size, collapse = ",")
       alt_allele_counts = paste(pos.data$A_allele, collapse = ",")
 
@@ -550,7 +551,7 @@ for (i in seq_along(sample.names)){
       # Write the WFABC input file
       writeLines(wfabc_data, output.file)
 
-      #Run WFABC step 1 (estimates Ne)
+      # Run WFABC step 1 to estimate Ne.
       setwd(paste0(output.directory, "/", sample.names[i], "/", locus.names[j], "/", pos.names[k]))
       if (!run_wfabc(paste0(wfabc1.bin, " ", output.file))){
         print(paste0("  TIMEOUT in wfabc_1, skipping site: ", site.tag))
@@ -567,8 +568,8 @@ for (i in seq_along(sample.names)){
         dev.off()
       } else { next }
 
-      #Run WFABC step 2 (estimates s), widening the prior until it returns output.
-      #Clear any stale posterior from a previous run so the first call always runs.
+      # Run WFABC step 2 to estimate s, widening the prior until it returns output.
+      # Remove any stale posterior so the first call executes.
       if (file.exists("input_posterior_s.txt")){ file.remove("input_posterior_s.txt") }
       wfabc2.timed.out = FALSE
       for (bounds in list("-0.3 -max_s 0.3", "-0.3 -max_s 0.3", "-0.1 -max_s 0.1",
@@ -586,7 +587,7 @@ for (i in seq_along(sample.names)){
 
       if (!file.exists("input_posterior_s.txt") || length(readLines("input_posterior_s.txt")) == 0){ next }
 
-      #Refine the prior bounds until two consecutive runs agree (KS test, capped)
+      # Refine the prior bounds until two consecutive runs agree, with a cap.
       ks.p = 0
       counter = 1
       while (ks.p < 0.1 && counter <= max.refine.iter){
@@ -594,11 +595,11 @@ for (i in seq_along(sample.names)){
         post_s = read.table("input_posterior_s.txt")
         post_s = unlist(as.vector(post_s))
 
-        #estimates lower and upper bound for the next run
+        # Estimate the lower and upper bounds for the next run.
         l_bound = quantile(post_s, probs = 0.05)
         u_bound = quantile(post_s, probs = 0.95)
 
-        #Creates a buffer
+        # Create a buffer.
         range = quantile(post_s, c(0.05, 0.95))
         buffer = 0.05 * diff(range)
         l_bound = l_bound - buffer
@@ -610,8 +611,8 @@ for (i in seq_along(sample.names)){
           wfabc2.timed.out = TRUE; break
         }
 
-        #This refinement run can occasionally return an empty posterior; if so,
-        #stop refining and keep the last valid posterior (post_s_run1).
+        # This refinement run can return an empty posterior. If it does, stop
+        # refining and retain the last valid posterior (`post_s_run1`).
         if (!file.exists("input_posterior_s.txt") || length(readLines("input_posterior_s.txt")) == 0){
           post_s = post_s_run1
           break
@@ -626,7 +627,7 @@ for (i in seq_along(sample.names)){
         print(paste0("iteration ", counter, " complete."))
         counter = counter+1
 
-      }#end while
+      } # End of while loop.
 
       if (wfabc2.timed.out){
         print(paste0("  TIMEOUT in wfabc_2 refinement, skipping site: ", site.tag))
@@ -634,8 +635,8 @@ for (i in seq_along(sample.names)){
         next
       }
 
-      #Gets the peak (MAP) of the s posterior (post_s is the last valid posterior,
-      #held in memory, so this does not re-read a possibly-empty posterior file)
+      # Obtain the posterior peak (MAP). `post_s` is the last valid posterior in
+      # memory, so a possibly empty posterior file is not reread.
       s_density = density(post_s)
       map_s = s_density$x[which.max(s_density$y)]
 
@@ -650,7 +651,7 @@ for (i in seq_along(sample.names)){
       lower_bound = hpd[1, "lower"]
       upper_bound = hpd[1, "upper"]
 
-      #Collect the result for this site
+      # Store the result for this site.
       data.table::set(collect.data, i = as.integer(x), j = match("sample", header.data), value = sample.names[i] )
       data.table::set(collect.data, i = as.integer(x), j = match("locus", header.data), value = locus.names[j] )
       data.table::set(collect.data, i = as.integer(x), j = match("nuc_position", header.data), value = pos.names[k] )
@@ -669,14 +670,14 @@ for (i in seq_along(sample.names)){
 
 }# end i
 
-#Record which sites were skipped (near-fixation pre-filter or wfabc timeout)
+# Record sites skipped by the near-fixation pre-filter or a WFABC timeout.
 if (is.null(skipped.sites) != TRUE){
   write.table(skipped.sites, paste0(output.directory, "/wfabc_skipped_sites.txt"),
               row.names = F, quote = F, sep = "\t")
   print(paste0(nrow(skipped.sites), " sites skipped (see wfabc_skipped_sites.txt)"))
 }
 
-#Save the WFABC summary table
+# Save the WFABC summary table.
 collect.data = collect.data[collect.data$sample != 0,]
 save.data = collect.data
 
@@ -894,5 +895,5 @@ if (!requireNamespace("ggplot2", quietly = TRUE)){
 }
 
 #########################
-###### END SCRIPT
+###### End of script.
 #########################

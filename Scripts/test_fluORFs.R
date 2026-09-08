@@ -8,17 +8,15 @@
 ####
 #### Two things are checked:
 ####
-####  1. BIOLOGY. Every product's spliced coding sequence must begin with ATG,
+####  1. Biological validity. Every product's spliced coding sequence must begin
+####     with ATG,
 ####     have a length divisible by three, contain no internal stop, and be
-####     followed immediately by a stop codon. A wrong splice junction or a
-####     wrong frame offset breaks at least one of those, which is what makes
-####     this worth running - the failure mode being guarded against is a
-####     coordinate that is plausible but off by one or two bases.
+####     followed immediately by a stop codon. An incorrect splice junction or
+####     frame offset should violate at least one of these conditions.
 ####
-####  2. AGREEMENT WITH makeGTF.R. If a reference_gtf directory is supplied,
-####     every CDS interval fluORFs.R computes must match the ones makeGTF.R
-####     wrote. The two encode the same coordinates separately, so this is the
-####     test that catches them drifting apart.
+####  2. Agreement with makeGTF.R. If a reference_gtf directory is supplied,
+####     every CDS interval computed by fluORFs.R must match the intervals written
+####     by makeGTF.R. This detects divergence between their coordinate definitions.
 
 args <- commandArgs(trailingOnly = TRUE)
 
@@ -91,8 +89,8 @@ for (nm in names(ref)) {
     ok(paste(lab, "| codons run 1..n/3"),
        max(m$aa_position) == flu_cds_length(o) %/% 3)
 
-    # A single-exon product starting at nucleotide 1 is the ONLY case where
-    # ceiling(position/3) is right; assert that so the distinction stays visible.
+    # A single-exon product starting at nucleotide 1 is the only case in which
+    # ceiling(position/3) is correct; assert this explicitly.
     if (nrow(o$exons) == 1 && o$exons$start[1] == 1) {
       ok(paste(lab, "| agrees with ceiling(pos/3)"),
          all(m$aa_position == ceiling(all.pos / 3)))
@@ -101,7 +99,7 @@ for (nm in names(ref)) {
          !all(m$aa_position == ceiling(all.pos / 3)))
     }
 
-    # Positions outside the CDS must be NA, never rounded into a real codon.
+    # Positions outside the CDS must be NA, never rounded into a codon.
     outside <- setdiff(seq_len(seq.len), all.pos)
     if (length(outside))
       ok(paste(lab, "| non-coding positions map to NA"),

@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """irma_position_map.py
 
-Place IRMA's consensus onto THIS run's reference coordinates, so a downstream
-reader can SHOW IRMA's consensus instead of re-deriving one, and can do it by
-lookup rather than by assuming a frame.
+Place IRMA's consensus onto this run's reference coordinates so downstream
+readers can display it by lookup rather than re-deriving it or assuming a frame.
 
 Why this exists
 ---------------
-IRMA produces a consensus, and it is the consensus FluMut screens. Anything that
-paints calls above 50% onto the reference is a SECOND, independent derivation of
-the same quantity -- two implementations of one rule, which is the shape of
-disagreement this pipeline has been bitten by before. The two are not
+IRMA produces the consensus that FluMut screens. Painting calls above 50% onto
+the reference is a second, independent derivation of the same quantity—two
+implementations of one rule, which is a potential source of disagreement. The two are not
 interchangeable: where both speak they agree, but IRMA maps to its own
 iteratively refined contig and recruits reads BWA soft-clips at the segment
 termini, so it carries consensus changes the reference-based callers never see.
@@ -19,20 +17,20 @@ Reading IRMA's consensus needs a coordinate frame, and a contig does not
 automatically share the reference's. On the 143-sample swine run:
 
   * 1,084 of 1,123 contigs are exactly reference length,
-  * 38 are SHORTER -- and 26 of those 38 by an amount that is not a multiple of
+  * 38 are shorter—and 26 of those 38 by an amount that is not a multiple of
     3, so splicing them through the reference's CDS intervals reads the tail of
     the product out of frame, and
-  * one is LONGER: MC-717 A_PA, +1 nt. A single inserted base shifts every
+  * one is longer: MC-717 A_PA, +1 nt. A single inserted base shifts every
     downstream codon. A truncation at least fails visibly at the end; an
     internal insertion silently returns wrong residues from the insertion
     onward.
 
 So the frame has to be established by alignment, per sample and per segment.
-That is a fact to be computed once, here, beside the data -- not re-inferred by
+That is a fact to compute once, here, beside the data—not re-infer by
 every reader, which is the same conclusion `flumut_position_map.py` reached for
 FluMut's numbering, for the same reason.
 
-Depth comes from IRMA's OWN coverage table, not from the BWA pileup
+Depth comes from IRMA's own coverage table, not from the BWA pileup
 -------------------------------------------------------------------
 `min_depth` exists because below it LoFreq and GATK4 report false fixations, and
 it is applied to the reference-based alignment. Applying that same floor to an
@@ -43,7 +41,7 @@ is in the contig's own coordinates and its Consensus column reconstructs the
 contig byte-for-byte, so the join is direct.
 
 IRMA has no consensus-depth parameter to point `min_depth` at -- `MIN_TCC` gates
-its variants table, not its consensus FASTA -- so the floor is recorded here and
+its variants table, not its consensus FASTA—so the floor is recorded here and
 left for the reader to apply. Nothing is masked: 12% of IRMA consensus bases sit
 below 100x, and N-masking a FASTA that FluMut screens both manufactures and
 suppresses markers.
@@ -60,18 +58,18 @@ established and what was found:
                 absent     no contig for this segment
                 no_ref     product's segment is not in the reference FASTA
 
-`irma_consensus_aa.tsv` -- one row per residue that is NOT a plain
+`irma_consensus_aa.tsv` — one row per residue that is not a plain
 reference-matching call at or above the depth floor:
 
     sample product ref_pos ref_aa irma_aa status irma_depth
 
     status      change          differs from the reference, depth >= min_depth
                 change_thin     differs, but below the floor
-                change_nodepth  differs, and depth is UNKNOWN -- no coverage
+                change_nodepth  differs, and depth is unknown — no coverage
                                 tables were given, so the floor was not applied
-                                and this must not be read as passing it
+                                and must not be interpreted as passing it
                 thin            matches the reference, below the floor
-                ambiguous       IRMA has N or a gap here -- NOT a no-change
+                ambiguous       IRMA has N or a gap here — not a no-change
                 uncovered       codon has no placement in the contig at all
 
 A residue absent from that file, in a product whose status is not `absent` or
@@ -80,24 +78,23 @@ A residue absent from that file, in a product whose status is not `absent` or
 must never be readable as "IRMA agrees", which is the misreading the
 zero-coverage marker flag exists to prevent.
 
-`irma_variants.tsv` -- IRMA's MINORITY calls, placed and reconciled:
+`irma_variants.tsv` — IRMA's minority calls, placed and reconciled:
 
     sample locus ref_pos ref_base cons_allele cons_freq minor_allele minor_freq
     minor_count total cons_is_ref minor_is_ref
 
-IRMA is the only independent alignment in this pipeline: LoFreq, iVar and GATK4
+IRMA is the only independent alignment in this pipeline: LoFreq, iVar, and GATK4
 all consume the same BWA BAM, so their agreement carries no information about
 alignment error and IRMA's does. That makes these worth having as CORROBORATION.
 
-They cannot simply be compared to a caller's ALT, for two reasons this file
+They cannot simply be compared with a caller's ALT, for two reasons this file
 resolves rather than leaves to the reader:
 
   * the position is in IRMA's contig coordinates, so it needs the same alignment
     the consensus needed; and
-  * IRMA states its minority allele against ITS OWN consensus, not the
-    reference. Where IRMA's consensus already differs from the reference, the
-    minority allele can BE the reference base -- a partial reversion, which
-    reads exactly backwards if you assume "minority" means "non-reference".
+  * IRMA states its minority allele against its own consensus, not the
+    reference. Where IRMA's consensus differs from the reference, the minority
+    allele can be the reference base, representing a partial reversion.
 
 Both alleles are therefore emitted with the reference base beside them, and
 `cons_is_ref` / `minor_is_ref` state the relationship outright instead of
@@ -326,7 +323,7 @@ def main():
         sys.stderr.write('irma_position_map: no reference CDS could be read; nothing written\n')
         return 0
 
-    # Reference CDS flattened to a list of 0-based reference indices per product,
+    # Flatten the reference CDS into a list of 0-based reference indices per product,
     # so a codon is three lookups rather than an interval walk.
     products = {}
     for product, rec in sorted(cds.items()):
@@ -354,7 +351,7 @@ def main():
         sample = fn[:-6]
         contigs = read_fasta(os.path.join(args.contigs, fn))
 
-        # One alignment per SEGMENT, reused by every product on it -- PA and PA-X
+        # Use one alignment per segment, shared by every product on it; PA and PA-X
         # share a contig, as do NS1/NEP, M1/M2 and PB1/PB1-F2.
         frames, depths = {}, {}
         for product, rec in products.items():
@@ -372,7 +369,7 @@ def main():
                 depths[locus] = read_depth(os.path.join(
                     args.irma, sample, 'tables', '%s-coverage.txt' % locus))
 
-        # IRMA's minority calls, placed on the reference and stated against the
+        # Place IRMA's minority calls on the reference and state them against the
         # reference base. Needs the SAME alignment the consensus used, which is
         # why it lives here rather than in a script of its own -- recomputing
         # 1,123 alignments to read a second table would be waste, and two
@@ -393,17 +390,18 @@ def main():
                     vtally['rows'] += 1
                     r0 = back.get(p - 1)
                     if r0 is None:
-                        # Inside a contig region the alignment would not place.
-                        # Dropped rather than guessed, same rule as everywhere here.
+                        # The alignment does not place this position within the
+                        # contig. Drop it rather than guessing, consistent with
+                        # the policy used throughout this script.
                         vtally['unplaced'] += 1
                         continue
                     ref_base = ref_seq[r0].upper()
                     if cons != ref_base:
                         vtally['consensus_differs_from_reference'] += 1
                     if minor == ref_base:
-                        # IRMA is reporting the REFERENCE base as the minority
-                        # allele: a partial reversion, which reads backwards if
-                        # you assume the minority allele is the non-reference one.
+                        # IRMA reports the reference base as the minority allele,
+                        # representing a partial reversion. This is the opposite
+                        # of what would be inferred if minority meant non-reference.
                         vtally['minority_is_reference'] += 1
                     var_rows.append((sample, locus, r0 + 1, ref_base,
                                      cons, '%.6g' % cfreq,
@@ -443,7 +441,7 @@ def main():
                 ref_aa = translate_codon(''.join(ref_seq[i] for i in tri))
                 mapped = [pos.get(i) for i in tri]
 
-                # A mapped position can index past the end of a PARTIAL IRMA
+                # A mapped position can exceed the end of a partial IRMA
                 # contig (real data assembles only part of a segment), so bound-
                 # check con[m] the same way the depth access below guards dep[m].
                 if any(m is None or m >= len(con) for m in mapped):
@@ -467,7 +465,7 @@ def main():
                     aa_rows.append((sample, product, k + 1, ref_aa, 'X', 'ambiguous', d))
                 elif irma_aa != ref_aa:
                     counts['changed'] += 1
-                    # An unknown depth is not a passing depth. Without the coverage
+                    # Unknown depth is not passing depth. Without coverage
                     # tables `change` would read as "at or above the floor" when
                     # nothing was measured — the same absence-of-evidence trap that
                     # `uncovered` exists to keep out of the residue rows.
@@ -486,7 +484,7 @@ def main():
                              counts['thin']))
             tally[status] += 1
 
-    # min_depth rides on every row of the frame table. It is constant per run, so
+    # Include min_depth on every frame-table row. It is constant per run, so
     # a column is redundant -- but a reader that knows a residue is `thin` and
     # cannot say thin against WHAT has to carry the number out of band, and the
     # viewer had to write "below the run's depth floor" for exactly that reason.

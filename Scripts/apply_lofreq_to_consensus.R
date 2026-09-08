@@ -54,11 +54,11 @@
 
 args = commandArgs(trailingOnly = TRUE)
 
-# --min-depth=N is pulled out before anything positional is read. A flag rather
-# than a fifth positional because everything past argument 4 is a variadic
-# FASTA/VCF list, so a new positional would be silently swallowed as an IRMA
-# FASTA by any caller not updated in step. This was previously hardcoded to 100
-# and ignored the run's MIN_DEPTH.
+# Extract `--min-depth=N` before reading positional arguments. It is a flag rather
+# than a fifth positional argument because all arguments after argument 4 form a
+# variadic FASTA/VCF list. A new positional argument would otherwise be consumed
+# as an IRMA FASTA by callers that had not been updated. The previous value was
+# hard-coded to 100 and ignored the run's MIN_DEPTH.
 min_depth_flag = grep("^--min-depth=", args, value = TRUE)
 MIN_DEPTH_NOTE = if (length(min_depth_flag))
   suppressWarnings(as.numeric(sub("^--min-depth=", "",
@@ -96,32 +96,32 @@ if (length(pairs) %% 2 != 0) {
   quit(status = 1)
 }
 
-# "NULL", empty, or a directory that is not there all mean "no depth source" and
-# leave the sequence unmasked. Stated once here so the per-sample lookup below
-# has nothing to decide.
+# "NULL", an empty value, or a nonexistent directory means that no depth source
+# is available and leaves the sequence unmasked. Normalize this once so the
+# per-sample lookup has no additional cases to handle.
 use_depth = !is.na(depth_dir) && nzchar(depth_dir) &&
             depth_dir != "NULL" && dir.exists(depth_dir)
 if (!use_depth)
   cat("No depth source: no-coverage positions will take a reference base, as before.\n",
-      "  Absence of a marker is NOT evidence of absence in this output.\n",
+      "  Absence of a marker is not evidence of absence in this output.\n",
       sep = "", file = stderr())
 
-# MIN_DEPTH_NOTE is set from --min-depth above and reported alongside the mask,
+# MIN_DEPTH_NOTE is set from `--min-depth` above and reported alongside the mask,
 # so the exposure below the floor stays visible without a second threshold being
 # imposed on the sequence itself.
 
-# Returns list(raw = segment -> depths, vis = segment -> depths or NULL), or NULL.
+# Return `list(raw = segment -> depths, vis = segment -> depths or NULL)`, or NULL.
 #
-# Two depths, because DEPTH_PROFILE publishes two: column 3 is every aligned
-# base, column 4 what the callers can actually see. Older runs are three-column
-# and have no `vis`.
+# Store two depth values because DEPTH_PROFILE publishes both: column 3 contains
+# every aligned base, and column 4 contains the bases visible to callers. Older
+# runs have three columns and no `vis` value.
 read_depth = function(sample_name) {
   if (!use_depth) return(NULL)
   p = file.path(depth_dir, paste0(sample_name, ".depth"))
   if (!file.exists(p) || file.info(p)$size == 0) return(NULL)
-  # Column count read from the file, not assumed: colClasses is RECYCLED when
-  # shorter than the row, so a hardcoded three-element vector against a
-  # four-column file works by luck rather than intent.
+  # Read the column count instead of assuming it. `colClasses` is recycled when
+  # shorter than a row, so a hard-coded three-element vector for a four-column
+  # file would work accidentally rather than by design.
   first = readLines(p, n = 1, warn = FALSE)
   if (!length(first) || !nzchar(first)) return(NULL)
   ncol_d = length(strsplit(first, "\t")[[1]])
@@ -156,8 +156,8 @@ read_fasta = function(path) {
   out
 }
 
-# Same rule rename_for_flumut.R uses, because this writes FluMut-ready headers
-# itself. It has to: that script takes the sample name from the FILENAME, and the
+# Use the same rule as rename_for_flumut.R because this script writes FluMut-ready headers
+# itself. The other script derives the sample name from the filename, whereas the
 # low-frequency path hands it one combined mutated.fasta, so every record in every
 # sample came out named "mutated_HA", "mutated_NA" and so on - 200 records
 # collapsing to 8 names with sample identity gone entirely. A marker found that way
@@ -190,8 +190,8 @@ for (i in seq(1, length(pairs), by = 2)) {
     if (endsWith(sample_name, suffix))
       sample_name = substr(sample_name, 1, nchar(sample_name) - nchar(suffix))
 
-  # The consensus is read ONLY to learn which segments this sample actually
-  # assembled. Its sequence is deliberately not used.
+  # Read the consensus only to determine which segments this sample assembled;
+  # do not use its sequence.
   assembled = names(read_fasta(fasta_path))
 
   variants = list()
@@ -223,10 +223,10 @@ for (i in seq(1, length(pairs), by = 2)) {
       } else oob = oob + 1
     }
 
-    # Zero-coverage positions are COUNTED, never written into the sequence.
+    # Count zero-coverage positions, but do not write them into the sequence.
     #
-    # Writing N there was implemented and then rejected on measurement: it
-    # suppressed 6 markers correctly on MC-696 and MANUFACTURED 3 that were not
+    # Writing N at these positions was evaluated and rejected because it
+    # suppressed 6 markers correctly on MC-696 but manufactured 3 that were not
     # there (NA-1:I222K, NA-1:I223K, NA-1:Q136R), because a heavily masked
     # segment perturbs FluMut's own alignment and shifts which residue it reads
     # at each numbered position. Masking with "-" instead was worse: 15 lost and
@@ -234,7 +234,7 @@ for (i in seq(1, length(pairs), by = 2)) {
     # 166 are not. Inventing a marker is a worse failure than reporting one on
     # thin evidence, so the sequence is left alone.
     #
-    # The counts go to the log and the depth files are published, so the
+    # The counts are logged and the depth files are published, so the
     # exposure is visible and FluLens can flag it against its own calibrated
     # marker coordinates - which is where a per-marker coverage check belongs,
     # because that is the only place FluMut's numbering is mapped back to
@@ -244,11 +244,11 @@ for (i in seq(1, length(pairs), by = 2)) {
     if (!is.null(dv)) {
       n = min(length(dv), length(seq_chars))
       if (n > 0) {
-        # Two questions, two depths. "Was there any read here at all" is a raw
-        # question and stays on column 3. "Did a caller have enough to work
-        # with" is not - MIN_DEPTH is tested against the filtered count, so
-        # counting thin against column 3 understates the exposure. Falls back
-        # to raw for three-column files, as this always did.
+        # Track two quantities. Column 3 answers whether any read was present;
+        # column 4 answers whether a caller had sufficient usable depth. MIN_DEPTH
+        # is tested against the filtered count, so counting thin positions from
+        # column 3 would understate exposure. Fall back to raw depth for
+        # three-column files.
         masked = masked + sum(dv[seq_len(n)] == 0)
         tv = if (!is.null(vv) && length(vv) >= n) vv else dv
         thin = thin + sum(dv[seq_len(n)] > 0 & tv[seq_len(n)] < MIN_DEPTH_NOTE)
@@ -289,7 +289,7 @@ if (use_depth) {
               else
                 "measured as RAW depth: these depth files predate the caller-visible column, so the true exposure is larger"),
       file = stderr())
-  cat("  Absence of a marker at those positions is NOT evidence of absence. They are\n",
+  cat("  Absence of a marker at those positions is not evidence of absence. They are\n",
       "  reported rather than masked because writing N into the sequence measurably\n",
       "  MANUFACTURES markers - see the script header. Per-position depth is published\n",
       "  alongside the results for FluLens to flag against calibrated marker positions.\n",

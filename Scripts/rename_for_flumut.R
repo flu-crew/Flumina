@@ -1,5 +1,5 @@
-#### Rewrite IRMA consensus FASTA headers into sample_segment form FluMut expects
-#### Concatenate all samples into one batch FASTA for FluMut screening
+#### Rewrite IRMA consensus FASTA headers into the sample_segment format expected by FluMut.
+#### Concatenate all samples into one batch FASTA for FluMut screening.
 
 #### IRMA's per-sample consensus (one file per sample, e.g., <sample>.fasta)
 #### carries bare headers with no sample name, e.g.:
@@ -7,9 +7,9 @@
 ####   >A_NA_N1
 ####   >A_MP
 ####
-#### FluMut expects headers like >sample_HA (sample_segment format)
-#### Sample name is injected from filename; segment names are normalized
-#### to canonical 8-segment codes: PB2, PB1, PA, HA, NP, NA, MP, NS
+#### FluMut expects headers such as >sample_HA (sample_segment format).
+#### Inject the sample name from the filename and normalize segment names to the
+#### canonical eight-segment codes: PB2, PB1, PA, HA, NP, NA, MP, NS.
 
 args = commandArgs(trailingOnly = TRUE)
 

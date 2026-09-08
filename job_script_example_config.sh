@@ -2,7 +2,7 @@
 #
 # Example SLURM job script — configuration-file version.
 #
-# Everything about the analysis lives in config.cfg, so this script only has to
+# All analysis settings are stored in config.cfg, so this script only needs to
 # load the software and start the run. Use this when you have more than a
 # handful of non-default settings, or when you want a single file that records
 # exactly how a run was configured. For the version that sets everything as
@@ -17,7 +17,7 @@
 # Submit with:
 #     sbatch job_script_example_config.sh
 #
-# EDIT BEFORE SUBMITTING: the account/partition and email lines below, and
+# Edit before submitting: the account/partition and email lines below, and
 # config.cfg itself.
 
 #SBATCH --job-name=Flumina
@@ -44,7 +44,7 @@
 #     #PBS -m abe
 #     #PBS -M your.email@example.com
 #
-# Two differences that catch people out: PBS starts the job in your HOME rather
+# Two differences are important: PBS starts the job in your home directory rather
 # than where you submitted from, so add `cd "$PBS_O_WORKDIR"` below; and the job
 # id is $PBS_JOBID, not $SLURM_JOB_ID. Both are handled automatically further
 # down. Everything else — the flumina command itself — is identical.
@@ -75,18 +75,18 @@ flumina --version
 #
 flumina -c config.cfg
 
-# Nothing needs overriding on the command line here: the work directory defaults
+# No command-line overrides are required here. The work directory defaults
 # to ./work beside your results, which is right whenever you submit from fast
 # scratch. Set WORK_DIRECTORY in config.cfg only if you submit from home or
 # project space, where a constantly-written, fast-growing directory does not
 # belong.
 #
-# Do not scope that path to the job id: the work directory IS the resume cache,
-# so a per-job path would quietly make -R useless, and every resubmission would
+# Do not scope that path to the job ID: the work directory is the resume cache,
+# so a per-job path would make -R ineffective and every resubmission would
 # redo everything from scratch.
 #
-# Reclaim the space by hand once you are satisfied with the results, rather than
-# automatically here — deleting it is what makes a failed run unresumable:
+# Reclaim the space manually after reviewing the results. Deleting the work
+# directory makes a failed run impossible to resume:
 #
 #     rm -rf work
 
