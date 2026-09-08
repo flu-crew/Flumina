@@ -1,80 +1,56 @@
 #### apply_lofreq_to_consensus.R
 ####
-#### Builds a FASTA carrying a sample's low-frequency LoFreq variants, for
-#### FluMut to screen. FluMut consumes sequence, not VCF, so the calls have to
-#### be painted onto something.
+#### Generates a FASTA file incorporating low-frequency LoFreq variants for a sample,
+#### formatted for FluMut screening. FluMut requires sequence input rather than VCF,
+#### necessitating the projection of variant calls onto a reference sequence.
 ####
-#### That something is the REFERENCE, not the IRMA consensus, and the reason is
-#### a coordinate bug rather than a preference.
+#### Variant calls are projected onto the reference sequence rather than the IRMA
+#### consensus to ensure coordinate consistency. LoFreq identifies variants relative
+#### to a bwa-aligned reference, whereas IRMA generates a de novo consensus. Applying
+#### reference-coordinate variants to an IRMA consensus sequence can result in incorrect
+#### allele substitutions due to insertion/deletion discrepancies and variable start
+#### positions between the consensus and the reference.
 ####
-#### (Details of an unpublished run were removed here.)
+#### Projecting variants onto the reference resolves this coordinate mismatch. Since the
+#### default flumut_freq_threshold is 0.01, majority variants are also applied, effectively
+#### reconstructing the sample's consensus background while preserving accurate coordinates.
 ####
+#### The standard FluMut pipeline continues to operate on the IRMA consensus sequence,
+#### as de novo assembly remains optimal for divergent samples lacking translational shifts.
+#### Only this low-frequency variant screening step utilizes the reference projection method.
 ####
+#### Note: Uncovered positions are quantified and reported, but are not masked.
 ####
+#### This approach addresses the issue of false positive marker reporting. Previously, a
+#### lack of sequence coverage resulted in the reference base being used, which FluMut
+#### could incorrectly interpret as a variant marker. However, masking uncovered regions
+#### with 'N' or '-' was empirically determined to cause greater alignment perturbations
+#### in FluMut, leading to both marker suppression and the generation of spurious markers.
 ####
+#### Therefore, the sequence is left unmasked. Instead, sequence depth is assessed and
+#### reported via DEPTH_PROFILE (`samtools depth -a` on the reference-aligned BAM). This
+#### allows downstream tools, such as FluLens, to evaluate marker validity based on read
+#### depth, as FluLens contains the necessary logic to map FluMut's internal numbering
+#### back to reference coordinates.
 ####
+#### Note that IRMA's coverage tables are not utilized here, as they correspond to the
+#### de novo consensus coordinates, which would reintroduce the coordinate mismatch issue.
 ####
-####
-#### Painting onto the reference removes the mismatch instead of correcting it.
-#### It is sound because flumut_freq_threshold defaults to 0.01, so majority
-#### variants are applied too - reference + LoFreq reconstructs the sample's own
-#### background. Verified: it reproduces the IRMA consensus exactly in 1,075 of
-#### 1,084 comparable records (99.2%).
-####
-#### Plain FLUMUT still runs on the IRMA consensus, where no translation is
-#### needed and de novo assembly is the more robust choice for divergent
-#### samples. Only this low-frequency step moves.
-####
-#### NO-COVERAGE POSITIONS ARE COUNTED AND REPORTED, NOT MASKED - 2026-08-08.
-####
-#### The residual this addresses is real: where a sample has no reads, a
-#### reference base stands in for no data, FluMut screens it, and "no marker
-#### here" gets reported on the strength of nothing at all.
-####
-#### (Details of an unpublished run were removed here.)
-####
-####
-####
-####
-####
-####
-####
-####
-#### Inventing a marker is a worse failure than reporting one on thin evidence,
-#### so the sequence is left exactly as it was. **Do not re-implement masking
-#### here** - it looks like the obvious fix and it is measurably not.
-####
-#### What happens instead: depth is read, the exposure is counted and logged, and
-#### DEPTH_PROFILE publishes the per-position depth so FluLens can flag markers
-#### resting on no coverage. That is the right place for it, because FluLens is
-#### the only component that maps FluMut's own numbering (HA1-5, NA-1, ...) back
-#### to reference positions - see calibrateFluMut() in its handoff. A per-marker
-#### coverage check needs that mapping; this script does not have it.
-####
-#### Depth comes from DEPTH_PROFILE (`samtools depth -a` on the reference-aligned
-#### BAM), already in the reference coordinates this script paints in. IRMA's own
-#### coverage tables are NOT usable: they are in IRMA's de novo consensus
-#### coordinates, and reconciling those back is precisely the coordinate problem
-#### reference-painting exists to avoid.
-####
-#### (Details of an unpublished run were removed here.)
-####
-####
-####
-#### Degrades: no depth directory means no counts, and everything else unchanged.
+#### The script degrades gracefully: if the depth directory is absent, depth counts are
+#### omitted without impacting the core sequence generation.
 ####
 #### Usage:
 ####   Rscript apply_lofreq_to_consensus.R <output.fasta> <freq_threshold> \
 ####       <reference.fa> <depth_dir|NULL> [--min-depth=N] <irma_fasta> <lofreq_vcf> [...]
 ####
-#### --min-depth is the run's MIN_DEPTH (default 100). Reported against, never
-#### masked at. Compared to the caller-visible column when the depth files carry
-#### one, since that is what MIN_DEPTH is tested against everywhere else;
-#### three-column files fall back to raw depth and the summary says so.
+#### --min-depth specifies the minimum depth threshold (default 100). This parameter is
+#### utilized for reporting purposes only and does not influence sequence masking. It
+#### evaluates the caller-visible depth column when available, or falls back to raw depth.
 ####
-#### Output headers are already >sample_SEGMENT, ready for FluMut. Do NOT pass
-#### this through rename_for_flumut.R: that takes the sample name from the
-#### filename, and one combined FASTA would make every record "mutated_*".
+#### Output FASTA headers are formatted as >sample_SEGMENT to ensure compatibility with
+#### FluMut. This file should not be processed by rename_for_flumut.R, as it relies on
+#### file names for sample identification, which would result in ambiguous headers for a
+#### combined FASTA.
 
 args = commandArgs(trailingOnly = TRUE)
 
