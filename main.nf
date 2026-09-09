@@ -1369,12 +1369,18 @@ process IRMA_POSITION_MAP {
     script:
     """
     cp ${config} run_config.cfg
-    # Same two appends as FLUMUT_POSITION_MAP, for the same reasons: makeGTF.R
-    # builds paths from OUTPUT_DIRECTORY and the pipeline's relocatable "." does
-    # not survive a setwd(), and the GTF must come from the same bytes as the
-    # reference the residues are numbered against.
     echo "OUTPUT_DIRECTORY=\\"\$PWD\\"" >> run_config.cfg
     echo "REFERENCE_FILE=\\"\$PWD/${reference}\\"" >> run_config.cfg
+
+    # Gracefully skip if IRMA assembled nothing, rather than throwing cryptic errors
+    shopt -s nullglob
+    fastas=(IRMA-consensus-contigs/*.fasta)
+    shopt -u nullglob
+    if [ \${#fastas[@]} -eq 0 ]; then
+        echo "No IRMA consensus contigs assembled. Skipping IRMA_POSITION_MAP." >&2
+        touch irma_position_map.tsv irma_consensus_aa.tsv irma_variants.tsv
+        exit 0
+    fi
 
     Rscript ${scripts}/makeGTF.R run_config.cfg
 

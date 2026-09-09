@@ -13,3 +13,4 @@ test_results_full/
 # Also covered globally now (~/.config/git/ignore), kept here so the repo is
 # self-explanatory to anyone without that config. Was listed twice.
 HANDOFF.md
+/empty_gtf
