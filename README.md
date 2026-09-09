@@ -3,6 +3,8 @@
 
 A pipeline for processing and calling high-frequency and low-frequency variants from Illumina sequence data for Influenza viruses
 
+Current release: **2.0.1**
+
 The pipeline accomplishes the following:
 
 1) Organize raw read data
@@ -54,20 +56,20 @@ flumina -i raw_reads -o results
 Download the image and run it. Nothing else needs installing, and nothing needs to be cloned:
 
 ```bash
-apptainer pull -F docker://chutter/flumina
-apptainer run flumina_latest.sif -i raw_reads -o results
+apptainer pull -F docker://chutter/flumina:2.0.1
+apptainer run flumina_2.0.1.sif -i raw_reads -o results
 ```
 
 Or with a configuration file, which is picked up automatically if it is named `config.cfg` and sits in your working directory:
 
 ```bash
-apptainer run flumina_latest.sif -c config.cfg
+apptainer run flumina_2.0.1.sif -c config.cfg
 ```
 
 Docker works the same way, but only sees folders you share with it:
 
 ```bash
-docker run -u $(id -u):$(id -g) -v "$(pwd)":/data -w /data chutter/flumina -i raw_reads -o results
+docker run -u $(id -u):$(id -g) -v "$(pwd)":/data -w /data chutter/flumina:2.0.1 -i raw_reads -o results
 ```
 
 Every step runs inside your one allocation, so give the job real resources and match `-t` and `-M` to them.
@@ -86,8 +88,8 @@ Nextflow runs on the host here, so it needs the pipeline files. Copy them out of
 
 ```bash
 module load nextflow apptainer
-apptainer pull -F docker://chutter/flumina
-apptainer run flumina_latest.sif --export ./flumina
+apptainer pull -F docker://chutter/flumina:2.0.1
+apptainer run flumina_2.0.1.sif --export ./flumina
 ```
 
 Then run it, from a small job with a long wall time:
