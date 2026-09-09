@@ -1107,8 +1107,13 @@ process FLUMUT {
     """
     flumut --version > flumut_version.txt
 
-    Rscript ${scripts}/rename_for_flumut.R batch.fasta IRMA-consensus-contigs/*.fasta
-
+    touch batch.fasta
+    for f in IRMA-consensus-contigs/*.fasta; do
+        if [ -f "\$f" ]; then
+            Rscript ${scripts}/rename_for_flumut.R batch.fasta IRMA-consensus-contigs/*.fasta
+            break
+        fi
+    done
     if [ -s batch.fasta ]; then
         flumut --skip-unmatch-names --skip-unknown-segments \\
                -m markers.tsv -M mutations.tsv -l literature.tsv \\
