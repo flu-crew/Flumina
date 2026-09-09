@@ -30,3 +30,10 @@
 # leave part of the allocation idle.
 #SINGLE_LOCAL_PROC=2
 #DOUBLE_LOCAL_PROC=1
+
+# Minimum read length to pass IRMA's pre-processing quality control.
+#
+# IRMA's default for the FLU module is 125bp. If your sequencing run used 
+# shorter reads (e.g., 100bp), IRMA will discard them all unless you lower 
+# this threshold.
+MIN_LEN=80
