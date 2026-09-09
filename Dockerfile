@@ -12,7 +12,7 @@
 #   docker build -t flumina:latest .
 #   docker run --rm -v "$PWD":/data -w /data flumina:latest bwa 2>&1 | head -3
 
-FROM --platform=linux/amd64 mambaorg/micromamba:1.5.8-jammy
+FROM mambaorg/micromamba:1.5.8-jammy
 
 LABEL org.opencontainers.image.title="Flumina" \
       org.opencontainers.image.description="Variant calling pipeline for influenza A Illumina data" \
