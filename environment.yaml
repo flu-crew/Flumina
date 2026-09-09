@@ -24,6 +24,7 @@ dependencies:
   - parallel=20240722
 # Needed only to unpack the IRMA release during the image build.
   - unzip=6.0
+  - perl
   - lofreq=2.1.5
 # iVar is the third caller. It reads a samtools mpileup on stdin and writes a
 # TSV rather than a VCF, which is why convertVCFtoTable.R parses it separately.
