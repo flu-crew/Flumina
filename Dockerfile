@@ -28,7 +28,8 @@ RUN apt-get update \
 USER $MAMBA_USER
 
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yaml /tmp/environment.yaml
-RUN micromamba install -y -n base -f /tmp/environment.yaml \
+RUN micromamba clean --all --yes \
+ && MAMBA_EXTRACT_THREADS=1 micromamba install -y -n base -f /tmp/environment.yaml \
  && micromamba clean --all --yes
 
 # Nextflow launches processes with plain `bash -ue`, which does not run the
