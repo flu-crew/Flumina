@@ -98,11 +98,9 @@ check_codon <- function(seq.str, pos, type = "start", label = "") {
 ####
 #### The CDS intervals come from Scripts/fluORFs.R, the same function the
 #### variant pipeline uses to turn a nucleotide position into an amino-acid
-#### position. They were previously defined in both files, which allowed them
-#### to diverge. fluORFs gained stop-codon trimming (NS1 and PA-X have
-#### strain-variable C-termini:
-#### 219 vs 230 aa and 232 vs 252 aa between the H3N2 and H5N1 references) and
-#### this file did not. A single source now prevents this inconsistency.
+#### position. One shared source keeps the GTF and the variant table consistent,
+#### including fluORFs' stop-codon trimming for the strain-variable C-termini of
+#### NS1 and PA-X.
 #############################################
 
 flu_gene_biotype <- "protein_coding"

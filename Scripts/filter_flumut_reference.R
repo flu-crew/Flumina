@@ -2,11 +2,9 @@
 ####
 #### Remove the reference's own FluMut findings from a set of sample results.
 ####
-#### (Details of an unpublished run were removed here.)
-####
-####
-####
-####
+#### FluMut reports every marker carried by a sequence, including markers already
+#### present in the reference. Such markers occur in every sample by construction
+#### and provide no sample-specific information.
 ####
 #### Usage:
 ####   Rscript filter_flumut_reference.R <ref_markers> <ref_mutations> \
@@ -115,13 +113,10 @@ if (!is.null(markers) && nrow(markers) > 0) {
 #############################################
 # Wide format: Sample | <one column per mutation>, cell = the residue found.
 #
-# (Details of an unpublished run were removed here.)
-#
-#
-#
-#
-#
-#
+# A column is dropped only when every sample carries the reference residue.
+# Dropping by "the reference has this marker" would discard reversions: a sample
+# that loses a reference marker produces no marker row, so markers.tsv cannot
+# show it. The wide table is therefore the only place that signal exists.
 if (!is.null(mutations) && nrow(mutations) > 0) {
   sample.col <- colnames(mutations)[1]
   mut.cols   <- setdiff(colnames(mutations), sample.col)
@@ -132,12 +127,11 @@ if (!is.null(mutations) && nrow(mutations) > 0) {
       if (!cl %in% colnames(ref.row)) return(TRUE)   # reference never saw it: keep
       rv <- as.character(ref.row[[cl]])
       sv <- unique(as.character(mutations[[cl]]))
-# (Details of an unpublished run were removed here.)
-#
-      #
-      #
-      #
-      #
+      # Drop missing values before comparing. A sample with no data for this
+      # marker is not evidence of a difference. An NA left in makes `sv == rv`
+      # return NA, which `all()` propagates and which then indexes the column
+      # list as NA ("undefined columns selected"). Samples can miss whole
+      # segments, so this is common.
       sv <- sv[!is.na(sv)]
       if (length(sv) == 0L) return(FALSE)            # nothing observed: no signal
       if (is.na(rv)) return(TRUE)                    # reference blank, samples not

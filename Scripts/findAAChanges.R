@@ -9,12 +9,9 @@
 # 4. snow
 # 5. seqinr
 
-# Runtime is approximately five minutes for 500 samples.
-
 args = commandArgs(trailingOnly = TRUE)
 # args = "config.cfg"  # Use a local configuration file during development.
 
-# args = "config.cfg"  # Use a local configuration file during development.
 # Function to read and parse configuration file
 lines <- readLines(args)
 
@@ -77,9 +74,9 @@ min.depth   = as.numeric(cfg("MIN_DEPTH", "100"))
 min.quality = as.numeric(cfg("MIN_QUALITY", "0"))
 dedup.keys  = cfg("DEDUP_KEYS", "")
 
-# output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/variant_analysis"
+# output.directory = "path/to/variant_analysis"
 # vcftable.path = paste0(output.directory, "/variant-table.csv")
-# reference.path = paste0("/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/Reference/reference.fa")
+# reference.path = "path/to/reference.fa"
 # threads = 4
 # metadata.file = NULL
 
@@ -129,13 +126,10 @@ if (!"product" %in% colnames(vcf.data)){
 
 # The spliced coding sequence for every product, built once.
 #
-# This implementation corrects a previous bug where codons were extracted directly
-# from the segment based on the formula `(aa_position-1)*3+1`. That approach
-# incorrectly assumed all coding sequences (CDS) were contiguous and began at 
-# nucleotide 1. For spliced products such as M2, NEP, and PA-X, this extracted
-# out-of-frame codons or translated beyond the stop codon (for example, M1 and
-# NS1), generating incorrect amino-acid predictions. Indexing the properly spliced
-# CDS accurately accommodates these junctions.
+# Codons are indexed into the spliced CDS, not extracted from the segment at
+# (aa_position-1)*3+1. Spliced products such as M2, NEP, and PA-X are not
+# contiguous and do not begin at nucleotide 1, so a raw-segment index would give
+# out-of-frame codons or translate past the stop codon (for example M1 and NS1).
 cds.lookup = list()
 for (lc in names(reference)){
   for (o in flu_orfs(lc, nchar(reference[[lc]])))

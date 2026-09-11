@@ -301,11 +301,10 @@ for (i in seq_along(ivar.files)) {
     map_quality      = NA_real_,
     allele_frequency = as.numeric(ivar.tab$ALT_FREQ),
     aa_position      = 0,
-    # (Details of an unpublished run were removed here.)
-    #
-    #
-    #
-    #
+    # iVar's own verdict on its own call, from its Fisher exact test against the
+    # sequencing error rate. Carried because it is the same situation as GATK4's
+    # FILTER column: iVar ANNOTATES rather than removes, so without this a flagged
+    # row arrives looking like a clean call.
     ivar_pass        = ivar.tab$PASS,
     # GATK4's FILTER verdict, which iVar rows do not have. Declared here rather
     # than assigned after the bind because ivar.data is legitimately empty when
@@ -423,14 +422,11 @@ for (i in seq_along(vcf.files)){
     
     data.table::set(collect.data, i = as.integer(x), j = match("method", header.data), value = "GATK4")
 
-    # (Details of an unpublished run were removed here.)
-    #
-    #
-    #
-    #
-    #
-    #
-    #
+    # GATK4's own verdict on its own call, and the reason it is worth a column
+    # is the same one that earned ivar_pass its own: gatk4-filtered-snps.vcf is
+    # VariantFiltration's output, which ANNOTATES rather than removes. Downstream
+    # is expected to honour FILTER, so without this column a flagged record looks
+    # exactly like a clean call.
     #
     # Annotated, not dropped. Whether non-PASS rows should be removed outright
     # is a decision that would change published results, and it is not this
@@ -510,17 +506,13 @@ final.data = rbind(lofreq.data, ivar.data, collect.data)
 #############################################
 #### Reconciling the two callers
 #############################################
-# (Details of an unpublished run were removed here.)
+# LoFreq's allele_frequency is an allele FRACTION. GATK4's is a GENOTYPE - a
+# hom-alt call is 1.0 whatever the reads say. LoFreq tracks the observed read
+# fraction; GATK4 does not report the same quantity.
 #
-#
-#
-#
-#
-#
-# (Details of an unpublished run were removed here.)
-#
-#
-#
+# Both callers also emit a row for the same change, so at most sites the table
+# carries TWO ROWS PER VARIANT. Counting rows therefore over-counts changes: a
+# single change can appear twice.
 #
 # Nothing existing is rewritten. `allele_frequency` keeps exactly what each
 # caller reported, because silently changing what a published column means is
@@ -555,11 +547,9 @@ lofreq.af = stats::setNames(as.numeric(final.data$allele_frequency[is.lofreq]),
 ivar.af   = stats::setNames(as.numeric(final.data$allele_frequency[is.ivar]),
                             final.data$variant_id[is.ivar])
 
-# (Details of an unpublished run were removed here.)
-#
-#
-#
-#
+# LoFreq keeps priority for allele_fraction. Its value matches the observed read
+# fraction, and it is what existing analyses of these tables were built on. iVar
+# fills the slot only where LoFreq never saw the change.
 borrowed.af = unname(lofreq.af[final.data$variant_id])
 borrowed.af = ifelse(is.na(borrowed.af), unname(ivar.af[final.data$variant_id]), borrowed.af)
 
@@ -589,10 +579,9 @@ cat(sprintf("  Rows by caller: LoFreq %d, iVar %d, GATK4 %d\n",
 cat(sprintf("  GATK4 rows: %d took a fraction from LoFreq or iVar, %d genotype-only (allele_fraction NA)\n",
             n.borrow, n.geno))
 
-# (Details of an unpublished run were removed here.)
-#
-#
-#
+# Counted per CALL, before the amino-acid expansion below, so this is a count of
+# records GATK4 wrote rather than of table rows. Print the FILTER breakdown so a
+# heavily flagged run is visible.
 gatk.filt = final.data$gatk_filter[final.data$method == "GATK4"]
 if (length(gatk.filt) > 0) {
   ft = sort(table(ifelse(is.na(gatk.filt), "(missing)", gatk.filt)), decreasing = TRUE)
