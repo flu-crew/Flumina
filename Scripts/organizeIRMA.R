@@ -28,21 +28,25 @@ overwrite = length(overwrite.raw) > 0L &&
             toupper(trimws(overwrite.raw)) %in% c("TRUE", "T", "YES", "1")
 irma.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA_results")
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA-consensus-contigs")
+# IRMA amended consensus (N-masked, IUPAC ambiguity codes), one FASTA per sample.
+amended.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/IRMA-amended-contigs")
 
 
 # Perform basic validation.
 if (is.null(irma.directory) == TRUE){ stop("Please provide the read directory.") }
 if (file.exists(irma.directory) == F){ stop("read folder not found.") }
 
-# Set the output directory and read the input files.
-if (dir.exists(output.directory) == F) {
-  dir.create(output.directory)
-} else {
-  if (overwrite == TRUE) {
-    system(paste0("rm -r ", output.directory))
-    dir.create(output.directory)
-  }
-} # end else
+# Create the output directories. Overwrite them when requested.
+for (out.dir in c(output.directory, amended.directory)) {
+  if (dir.exists(out.dir) == F) {
+    dir.create(out.dir)
+  } else {
+    if (overwrite == TRUE) {
+      system(paste0("rm -r ", out.dir))
+      dir.create(out.dir)
+    }
+  } # end else
+} # end out.dir loop
 
 # Read the sample data.
 sample.names = list.files(irma.directory, recursive = F, full.names = F)
@@ -72,7 +76,28 @@ for (i in seq_along(sample.names)) {
     "cat ", paste0(fasta.files, collapse = " "),
     " > ", output.directory, "/", sample.names[i], ".fasta"
   ))
-  
+
+  #################################################
+  ### Part B: collect the amended consensus
+  #################################################
+  # IRMA writes the amended consensus as *.fa in amended_consensus/: padded,
+  # low-coverage positions masked to N, minor alleles as IUPAC codes. Collect it
+  # into IRMA-amended-contigs/.
+  amended.files = list.files(
+    paste0(irma.directory, "/", sample.names[i], "/amended_consensus"),
+    pattern = "\\.(fa|fasta)$", full.names = T
+  )
+
+  if (length(amended.files) != 0){
+    if (file.exists(paste0(amended.directory, "/", sample.names[i], ".fasta")) == TRUE){
+      system(paste0("rm ", amended.directory, "/", sample.names[i], ".fasta"))
+    }
+    system(paste0(
+      "cat ", paste0(amended.files, collapse = " "),
+      " > ", amended.directory, "/", sample.names[i], ".fasta"
+    ))
+  } # end amended block
+
 }# end i loop
 
 

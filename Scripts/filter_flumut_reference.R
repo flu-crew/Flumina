@@ -4,9 +4,7 @@
 ####
 #### FluMut reports every marker carried by a sequence, including markers already
 #### present in the reference. Such markers occur in every sample by construction
-#### and provide no sample-specific information. On the swine WGS run, the
-#### reference accounted for 84 marker rows; across 30 samples, 2,514 of 2,515
-#### reported rows were identical to the reference.
+#### and provide no sample-specific information.
 ####
 #### Usage:
 ####   Rscript filter_flumut_reference.R <ref_markers> <ref_mutations> \
@@ -116,12 +114,9 @@ if (!is.null(markers) && nrow(markers) > 0) {
 # Wide format: Sample | <one column per mutation>, cell = the residue found.
 #
 # A column is dropped only when every sample carries the reference residue.
-# Dropping by "the reference has this marker" would discard reversions, which
-# markers.tsv cannot show a sample that loses a reference marker, because it
-# produces no marker row. The wide table is therefore the only
-# place that signal exists. On the swine WGS run this rule cut 59 columns to 4,
-# and one of the four was exactly such a reversion (NA-1:S364N, reference N,
-# one sample Q).
+# Dropping by "the reference has this marker" would discard reversions: a sample
+# that loses a reference marker produces no marker row, so markers.tsv cannot
+# show it. The wide table is therefore the only place that signal exists.
 if (!is.null(mutations) && nrow(mutations) > 0) {
   sample.col <- colnames(mutations)[1]
   mut.cols   <- setdiff(colnames(mutations), sample.col)
@@ -132,12 +127,11 @@ if (!is.null(mutations) && nrow(mutations) > 0) {
       if (!cl %in% colnames(ref.row)) return(TRUE)   # reference never saw it: keep
       rv <- as.character(ref.row[[cl]])
       sv <- unique(as.character(mutations[[cl]]))
-# Drop missing values before comparing. A sample with no data for this marker
-# is not evidence of a difference. Leaving the NA in makes
-      # `sv == rv` return NA, which `all()` propagates and which then indexes
-      # the column list as NA ("undefined columns selected"). The swine WGS run
-      # has samples missing whole segments, so this is the normal case, not an
-      # edge one.
+      # Drop missing values before comparing. A sample with no data for this
+      # marker is not evidence of a difference. An NA left in makes `sv == rv`
+      # return NA, which `all()` propagates and which then indexes the column
+      # list as NA ("undefined columns selected"). Samples can miss whole
+      # segments, so this is common.
       sv <- sv[!is.na(sv)]
       if (length(sv) == 0L) return(FALSE)            # nothing observed: no signal
       if (is.na(rv)) return(TRUE)                    # reference blank, samples not

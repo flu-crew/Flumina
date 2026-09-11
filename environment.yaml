@@ -58,11 +58,11 @@ dependencies:
 # image ships and what the position map was validated against. Moving it is a
 # deliberate, recorded decision, exactly like the ivar pin above.
   - flumutdb=6.7
-# Used by flumut_position_map.py to align FluMut's reference proteins onto this
-# run's. It arrives transitively through flumut today, which means a flumut
-# update could drop or downgrade it and take the position map with it. >=1.86 is
-# the real requirement: PairwiseAligner.end_insertion_score is the renamed
-# spelling of the free-end-gap score, and without free end gaps HA1 aligns across
-# the whole ORF and is placed wrongly rather than not at all.
-  - biopython>=1.86
+# Used by flumut_position_map.R to read FluMut's marker database
+# (flumut_db.sqlite, shipped inside flumutdb). DBI ships with the R base image,
+# but the SQLite backend does not, so it is added here. The protein alignment
+# uses bioconductor-biostrings, which is already pinned above. 2.3.4 is the build
+# that resolves against r-base 4.2 and bioconductor-biostrings 2.66; pinned like
+# everything else so a rebuild resolves the same reader.
+  - r-rsqlite=2.3.4
 

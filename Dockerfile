@@ -3,7 +3,7 @@
 # Pin the platform to linux/amd64. gatk4, irma, and lofreq have no
 # linux-aarch64 builds on bioconda, so an arm64 image cannot be built at all.
 # On Apple Silicon this runs under emulation; on HPC nodes
-# or cloud instance it runs natively.
+# or cloud instances it runs natively.
 #
 # environment.yaml is the single source of truth for tool versions and is shared
 # with the conda install path, so the container and a local conda env resolve to
@@ -52,13 +52,11 @@ ENV JAVA_TOOL_OPTIONS="-XX:+UseSerialGC"
 # is the slow one, to rebuild.
 USER root
 # Pin this to match the Nextflow version commonly available as a cluster module.
-# This
-# matters more than it looks: with `-p slurm` Nextflow runs on the HOST, so a
-# cluster's version parses the config while the container's version runs the
-# single-job path. When the two diverged (24.10.4 here, 26.04.3 on the cluster)
-# every incompatibility surfaced only on the cluster, one at a time. The strict
-# config parser introduced in 25.x rejects `def` functions, `if` statements and
-# `for` loops, and stopped coercing `--flag false` to a boolean.
+# With `-p slurm` Nextflow runs on the HOST, so the cluster's version parses the
+# config while the container's version runs the single-job path. A mismatch then
+# fails only on the cluster. The strict config parser introduced in 25.x rejects
+# `def` functions, `if` statements, and `for` loops, and stopped coercing
+# `--flag false` to a boolean.
 ARG NXF_VER=26.04.3
 RUN NXF_VER=${NXF_VER} curl -s https://get.nextflow.io | bash \
  && mv nextflow /usr/local/bin/nextflow \
@@ -68,8 +66,8 @@ RUN NXF_VER=${NXF_VER} curl -s https://get.nextflow.io | bash \
 # repeat on every container start (NXF_HOME cannot persist in a read-only
 # image) and would fail outright on an air-gapped cluster, so warm it here
 # while the build still has network access. Use mode 777 because the image runs
-# uid the user happens to have — Apptainer never runs as root, and Docker is
-# commonly run with -u — and Nextflow writes into NXF_HOME as it goes.
+# under whatever uid the user happens to have — Apptainer never runs as root, and
+# Docker is commonly run with -u — and Nextflow writes into NXF_HOME as it goes.
  && NXF_HOME=/opt/nextflow nextflow -version \
  && chmod -R 777 /opt/nextflow
 

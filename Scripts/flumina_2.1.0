@@ -19,7 +19,7 @@
 # pattern used below. Pipeline failures are handled explicitly.
 
 # Flumina version.
-VERSION="2.0.1"
+VERSION="2.1.0"
 
 
 ##### Define functions #####
@@ -320,8 +320,7 @@ function load_config_file() {
             WFABC_TIMEOUT)         CFG_WFABC_TIMEOUT="$value" ;;
             MAX_REFINE_ITER)       CFG_MAX_REFINE_ITER="$value" ;;
             MAX_MEMORY)            CFG_MAX_MEMORY="$value" ;;
-            # Accept SLURM_* aliases for settings that originally supported only
-            # Slurm.
+            # Accept the SLURM_* aliases as well as the generic names.
             CLUSTER_QUEUE|SLURM_QUEUE)     CFG_CLUSTER_QUEUE="$value" ;;
             CLUSTER_OPTIONS|SLURM_OPTIONS) CFG_CLUSTER_OPTIONS="$value" ;;
             QUEUE_SIZE)            CFG_QUEUE_SIZE="$value" ;;
@@ -330,7 +329,7 @@ function load_config_file() {
             APPTAINER_CACHE)       CFG_APPTAINER_CACHE="$value" ;;
             WORK_DIRECTORY)        CFG_WORKDIR="$value" ;;
             PROFILE)               CFG_PROFILE="$value" ;;
-            # Snakemake-era settings that Nextflow handles directly.
+            # Legacy settings that Nextflow handles directly; ignore with a note.
             FORCE_UNLOCK|OVERWRITE|TEMPDIR)
                 echo "  note: '${key}' is no longer needed and was ignored (Nextflow handles this)"
                 ;;
@@ -396,8 +395,8 @@ FLUMUT_FREQ=0.01
 # inherits, and they drown out the real ones.
 FLUMUT_SUBREF="true"
 # Keep HA/NA marker rows when the reference subtype does not match FluMut's
-# H5/N1 numbering. Off by default: off-subtype those positions are read against
-# the wrong ruler. Dropped rows survive in markers_all.tsv either way.
+# H5/N1 numbering. Off by default: off-subtype those positions use the wrong
+# numbering. Dropped rows survive in markers_all.tsv either way.
 FLUMUT_KEEP_HANA="false"
 IRMA_CONFIG=""
 # Empty means "derive it from OUTPUT_DIRECTORY once that is known"; see the
@@ -634,13 +633,10 @@ fi
 
 # Work directory: beside the results, never inside them.
 #
-# Nextflow's work/ holds a staged copy of nearly everything — on the swine WGS
-# run that was 872 copies of reference.fa, 429 LoFreq VCFs and one of every
-# analysis table. Two things go wrong when it lands inside OUTPUT_DIRECTORY.
-# Anything reading the results directory finds those copies competing with the
-# real outputs (FluLens read reference_gtf twice and reported PB2 as 1518 codons
-# rather than 759), and the published directory stops being something you can
-# hand to anyone, because it is mostly scratch by volume.
+# Nextflow's work/ holds a staged copy of nearly everything. When it lands
+# inside OUTPUT_DIRECTORY, two things go wrong: anything reading the results
+# finds those copies competing with the real outputs, and the published
+# directory becomes mostly scratch by volume.
 #
 # So the default is <parent of OUTPUT_DIRECTORY>/work: one directory back, next
 # to the results rather than in them. An explicit WORK_DIRECTORY or -w still
@@ -862,8 +858,11 @@ NF_ARGS=(
 [ -n "$APPTAINER_CACHE" ]      && NF_ARGS+=(--apptainer_cache "$APPTAINER_CACHE")
 [ -n "$PUBLISH_MODE" ]         && NF_ARGS+=(--publish_mode "$PUBLISH_MODE")
 [ -n "$MAX_MEMORY" ]           && NF_ARGS+=(--max_memory "$MAX_MEMORY")
-# CLEANUP=FALSE also publishes intermediate BAM files.
+# CLEANUP=FALSE also publishes the intermediate BAM files and the full IRMA
+# tree. CLEANUP=TRUE trims IRMA_results to <sample>/tables/ and logs/, and
+# removes the large IRMA files as each sample finishes.
 [ "$CLEANUP" != "true" ]       && NF_ARGS+=(--publish_intermediate_bams true)
+[ "$CLEANUP" != "true" ]       && NF_ARGS+=(--publish_full_irma true)
 # Write scheduler settings to a generated configuration file rather than passing
 # --parameters, because Nextflow rejects any --param whose value begins with a
 # dash, and scheduler options often do (for example, '-A account' or

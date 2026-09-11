@@ -1,8 +1,6 @@
 #### Run the Flumina pipeline first to obtain variant calls in VCF files.
 #### Then run convertVCFtoTable.R to create all_sample_amino_acids.txt.
 
-# Runtime is typically a few seconds for 500 samples.
-
 args = commandArgs(trailingOnly = TRUE)
 # args = "config.cfg"  # Use a local configuration file during development.
 
@@ -41,7 +39,7 @@ if (length(aa.table.path) == 0L || aa.table.path == "" ||
   quit(save = "no", status = 0)
 }
 
-# output.directory used from 1_convertVCFtoTable.R
+# output.directory used from convertVCFtoTable.R
 output.directory = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/variant_analysis")
 
 # Grouping column joined to the variant sample data in step 2.
@@ -58,16 +56,14 @@ af.val = gsub("\"", "", config$MIN_ALLELE_FREQUENCY)
 
 
 #### Debugging examples
-#output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/bird_flu_new/variant_analysis"
-#aa.table.path = paste0("/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/curated_database.csv")
+#output.directory = "path/to/variant_analysis"
+#aa.table.path = paste0("path/to/curated_database.csv")
 #threads = 4
 #group.names = "discrete_host"   # a COLUMN of the METADATA csv, not a path
 
 #############################################
 #### Should not need to modify below here
 #############################################
-
-#output.directory = "/Users/chutter/Dropbox/Research/1_Main-Projects/0_Working-Projects/Bird_Flu/variant_analysis"
 
 # Read the previously generated amino-acid table.
 sample.data = read.table(paste0(output.directory, "/all_sample_amino_acids.txt"), sep = "\t", header = T, na.strings = "")
@@ -128,9 +124,9 @@ best.aa[is.na(best.aa) == TRUE] = "NA"
 # primary-product coordinates: it lists M1 N30D and M1 T215A as virulence
 # determinants, and NS1 P42S and D92E, all of which are primary-ORF residues.
 #
-# Joining it against secondary products as well would add 22 "hits" on the
-# swine WGS data (MP 30/43/77 onto M2, NS 42/91/92/94 onto NEP). Every one is a
-# numeric coincidence, not a marker - so restrict the join to primary products.
+# Joining it against secondary products as well would add spurious hits — a
+# curated position matching by number, not by biology — so restrict the join to
+# primary products.
 #
 # A curated database that genuinely wants a secondary-product site can say so
 # by adding a `Product` column; when present it is matched against `product`

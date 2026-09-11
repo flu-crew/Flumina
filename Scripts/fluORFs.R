@@ -41,9 +41,9 @@ flu_segment_type <- function(name) {
   return(NA)
 }
 
-# Return the conventional primary product name for a segment. Variants are reported
-# against this one by default, which is what keeps `locus`-keyed joins (the
-# curated database, outputSummary.R) behaving exactly as they did before.
+# Return the conventional primary product name for a segment. Variants are
+# reported against this one by default, which keeps `locus`-keyed joins (the
+# curated database, outputSummary.R) consistent.
 flu_primary_product <- function(seg.type) {
   switch(as.character(seg.type),
          "MP" = "M1", "NS" = "NS1",
@@ -51,8 +51,8 @@ flu_primary_product <- function(seg.type) {
 }
 
 # Proportionally scale a canonical coordinate to a different sequence length.
-# This is the same helper used by makeGTF.R; internal ORF coordinates are meaningful
-# relative to the canonical reference they were measured on.
+# This is the same helper used by makeGTF.R; internal ORF coordinates are
+# meaningful relative to the canonical reference they are defined on.
 flu_scale_pos <- function(pos, canonical_len, actual_len) {
   round(pos * actual_len / canonical_len)
 }
@@ -162,11 +162,9 @@ flu_orfs_for <- function(seq.name, seq.str, seg.type = NULL) {
 # The canonical coordinates provide the start of each product and its splice
 # donor/acceptor sites, which are structurally conserved. They do not reliably
 # give the END: NS1 and PA-X have strain-variable C-terminal lengths that are
-# not proportional to segment length. Both the swine H3N2 and cow H5N1
-# references have an 838 nt NS segment, yet NS1 is 219 aa in one and 230 in the
-# other; PA-X is likewise 232 aa in one and the full-length 252 in the other.
-# Scaling the canonical end truncates the protein and every codon number past
-# the cut is then wrong.
+# not proportional to segment length. Two references of the same NS length can
+# encode NS1 or PA-X proteins of different lengths, so scaling the canonical end
+# truncates the protein and every codon number past the cut is then wrong.
 #
 # Use the start and splice sites from the canonical layout, and find the end in
 # the sequence itself by locating the first in-frame stop codon.

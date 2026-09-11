@@ -400,18 +400,11 @@ for (i in seq_along(sample.names)){
           # aggregate() from dropping valid rows with missing annotations.
           #
           # aggregate's formula method applies na.omit across every term, so one
-          # NA in a grouping column drops the whole row. Since the spliced-ORF
-          # correction, aa_position is legitimately NA wherever a call sits
-          # outside its segment's primary ORF - MP past the end of M1, NS past
-          # NS1, and so on. 424 of 12,531 calls on the cow merged set. Where
-          # such a position also had repeat time points, every row dropped and
-          # aggregate died with "no rows to aggregate": measured at A_MP:909 in
-          # animal 16, 2 rows in and 0 out.
-          #
-          # It was unreachable before the correction because the old
-          # ceiling(POS/3) always returned a number, so this is a latent crash
-          # the ORF fix introduced here and nowhere else. The swine run survived
-          # it only by not having a repeat-sampled position outside a primary ORF.
+          # NA in a grouping column drops the whole row. aa_position is
+          # legitimately NA wherever a call sits outside its segment's primary
+          # ORF (MP past the end of M1, NS past NS1, and so on). Where such a
+          # position also has repeat time points, every row would drop and
+          # aggregate would fail with "no rows to aggregate".
           #
           # aa_position is functionally determined by (locus, nuc_position), so
           # dropping it from the grouping loses nothing and it is mapped back

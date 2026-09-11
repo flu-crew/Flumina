@@ -3,7 +3,7 @@
 
 A pipeline for processing and calling high-frequency and low-frequency variants from Illumina sequence data for Influenza viruses
 
-Current release: **2.0.1**
+Current release: **2.1.0**
 
 The pipeline accomplishes the following:
 
@@ -56,20 +56,20 @@ flumina -i raw_reads -o results
 Download the image and run it. Nothing else needs installing, and nothing needs to be cloned:
 
 ```bash
-apptainer pull -F docker://chutter/flumina:2.0.1
-apptainer run flumina_2.0.1.sif -i raw_reads -o results
+apptainer pull -F docker://chutter/flumina:2.1.0
+apptainer run flumina_2.1.0.sif -i raw_reads -o results
 ```
 
 Or with a configuration file, which is picked up automatically if it is named `config.cfg` and sits in your working directory:
 
 ```bash
-apptainer run flumina_2.0.1.sif -c config.cfg
+apptainer run flumina_2.1.0.sif -c config.cfg
 ```
 
 Docker works the same way, but only sees folders you share with it:
 
 ```bash
-docker run -u $(id -u):$(id -g) -v "$(pwd)":/data -w /data chutter/flumina:2.0.1 -i raw_reads -o results
+docker run -u $(id -u):$(id -g) -v "$(pwd)":/data -w /data chutter/flumina:2.1.0 -i raw_reads -o results
 ```
 
 Every step runs inside your one allocation, so give the job real resources and match `-t` and `-M` to them.
@@ -88,8 +88,8 @@ Nextflow runs on the host here, so it needs the pipeline files. Copy them out of
 
 ```bash
 module load nextflow apptainer
-apptainer pull -F docker://chutter/flumina:2.0.1
-apptainer run flumina_2.0.1.sif --export ./flumina
+apptainer pull -F docker://chutter/flumina:2.1.0
+apptainer run flumina_2.1.0.sif --export ./flumina
 ```
 
 Then run it, from a small job with a long wall time:
@@ -263,8 +263,9 @@ Results are written to the output directory given by `-o`:
 | `variant_analysis/` | Variant tables, amino acid changes, and summaries |
 | `variant_analysis/flumut/` | H5N1 markers found in the consensus genomes |
 | `variant_analysis/flumut_lowfreq/` | H5N1 markers found in low-frequency variants (`-l`) |
-| `IRMA-consensus-contigs/` | Per-sample consensus genomes |
-| `IRMA_results/` | Full IRMA output per sample |
+| `IRMA-consensus-contigs/` | Per-sample plurality consensus genomes |
+| `IRMA-amended-contigs/` | Per-sample amended consensus (N-masked, IUPAC ambiguity codes) |
+| `IRMA_results/` | Per-sample IRMA output. On `CLEANUP=TRUE` (default), trimmed to `<sample>/tables/` and `logs/`. `CLEANUP=FALSE` keeps the full tree. |
 | `vcf_files/` | Per-sample GATK and LoFreq VCFs |
 | `BAM_files/` | Aligned, sorted, duplicate-marked BAMs |
 | `processed-reads/` | Trimmed reads |

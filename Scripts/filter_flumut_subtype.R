@@ -3,13 +3,11 @@
 #### Drop FluMut HA/NA markers when the reference subtype does not match the
 #### numbering scheme used by those markers.
 ####
-#### FluMut is an H5N1 tool, but its database is broader than that label suggests.
-#### On the swine H3N2 run, the 69 retained markers carried 16 subtype labels and
-#### only 19 were H5N1. Refusing to run it off-subtype would discard most of its
-#### value. The internal genes are subtype-agnostic: PB2, PB1, PA, NP, and
-#### NS markers are subtype-agnostic biology (PB2:K702R raises polymerase
-#### activity in mammalian cells whatever the HA is), and they were 50 of those
-#### 69.
+#### FluMut is an H5N1 tool, but its database is broader than that label suggests
+#### and carries markers across many subtypes. Refusing to run it off-subtype
+#### would discard most of its value. The internal genes are subtype-agnostic:
+#### PB2, PB1, PA, NP, and NS markers are subtype-agnostic biology (PB2:K702R
+#### raises polymerase activity in mammalian cells whatever the HA is).
 ####
 #### HA and NA require special handling. The database protein names identify their
 #### numbering schemes: HA1-5 uses H5 HA1 numbering, and NA-1 uses N1 numbering.
@@ -23,8 +21,8 @@
 #### which virus a finding was published in, not which numbering the position
 #### uses: PB2:K702R is labelled H5N1 and is entirely valid on swine.
 ####
-#### Determine subtype from segment names (A_HA_H3 / A_NA_N2 on the swine
-#### reference and A_HA_H5 on the cow data) using two sources, in this order:
+#### Determine subtype from segment names (e.g. A_HA_H3 / A_NA_N2, or A_HA_H5)
+#### using two sources, in this order:
 ####
 ####   1. the reference FASTA's own segment names, and
 ####   2. the IRMA consensus contigs, whose headers IRMA writes with the subtype
@@ -144,13 +142,8 @@ cat(sprintf("  subtype source: HA from %s, NA from %s\n", ha.r$source, na.r$sour
 # Publish the decision rather than leaving it only in the log.
 #
 # FluLens carries its own refSubtype() implementation of this rule against the
-# reference names, and duplicated rules are exactly how this project has been
-# bitten before - stats.multi disagreed with the panel it was meant to match for
-# weeks because only one copy was fixed. When this script gained a second source,
-# that copy became incorrect rather than merely duplicated: a bare-named
-# H5N1 run now keeps its HA/NA markers here while FluLens would still call them
-# unconfirmed. So the answer is written down and the app reads it instead of
-# recomputing it.
+# reference names. Two copies can drift apart, so write the decision here and
+# have FluLens read it instead of recomputing it.
 #
 # Tab-separated with a header, because everything else here is, and NA is
 # written as the literal "unconfirmed" rather than an empty cell so it cannot be
@@ -165,10 +158,10 @@ write.table(
              stringsAsFactors = FALSE),
   file.path(outdir, "subtype.tsv"), sep = "\t", row.names = FALSE, quote = FALSE)
 
-# An absent markers.tsv ends the run only at this point. The subtype is a property
-# of the run, not of whether FluMut found anything, and this check previously
-# to sit at the top - which would have skipped writing the file in exactly the
-# cases where a reader most needs to know the screen was attempted.
+# An absent markers.tsv ends the run only at this point, after the subtype file
+# is written. The subtype is a property of the run, not of whether FluMut found
+# anything. A check at the top would skip writing the file in exactly the cases
+# where a reader most needs to know the screen was attempted.
 if (!file.exists(markers.path) || file.info(markers.path)$size == 0) {
   cat("No markers to filter.\n", file = stderr()); quit(status = 0)
 }
