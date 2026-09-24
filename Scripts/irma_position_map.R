@@ -199,6 +199,10 @@ map.positions = function(ref.seq, irma.seq) {
   if (nref == nchar(irma.seq) && colinear.identity(ref.seq, irma.seq) >= 0.95) {
     return(list(map = seq.int(0L, nref - 1L), status = "identity"))
   }
+  # An IRMA contig can contain "-". Align it as "N", which mismatches every base
+  # (as "-" does in the Python aligner) and keeps the contig length. Then "-" in
+  # the aligned strings below is always an alignment gap.
+  irma.seq = gsub("-", "N", irma.seq, fixed = TRUE)
   a = pairwiseAlignment(pattern = DNAString(toupper(irma.seq)),
                         subject = DNAString(toupper(ref.seq)),
                         type = "global-local", substitutionMatrix = NUC.MAT,
