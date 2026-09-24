@@ -51,6 +51,30 @@ if (length(reference.path) == 0L || !nzchar(reference.path) ||
   reference.path = paste0(gsub("\"", "", config$OUTPUT_DIRECTORY), "/reference.fa")
 }
 
+# Return the config value for a key, or the default when the key is missing,
+# blank or NULL. findAAChanges.R uses the same helper.
+cfg = function(key, default = NULL) {
+  v = config[[key]]
+  if (is.null(v)) return(default)
+  v = gsub("\"", "", trimws(v))
+  if (!nzchar(v) || v == "NULL") return(default)
+  v
+}
+
+# Thresholds for the call assessment at the end of this script. They use the
+# same config keys as FluLens loadRunThresholds. FluPore writes MIN_FREQ and
+# Flumina writes MIN_ALLELE_FREQUENCY.
+freq.key  = if (is.null(config[["MIN_FREQ"]])) "MIN_ALLELE_FREQUENCY" else "MIN_FREQ"
+min.depth = suppressWarnings(as.numeric(cfg("MIN_DEPTH", "100")))
+min.alt   = suppressWarnings(as.numeric(cfg("MIN_ALT", "10")))
+min.freq  = suppressWarnings(as.numeric(cfg(freq.key, "0.01")))
+
+# Stop when a threshold in the config is not a number, because the script cannot
+# apply it.
+if (is.na(min.depth)) { stop("MIN_DEPTH in the config is not a number: ", cfg("MIN_DEPTH")) }
+if (is.na(min.alt)) { stop("MIN_ALT in the config is not a number: ", cfg("MIN_ALT")) }
+if (is.na(min.freq)) { stop(freq.key, " in the config is not a number: ", cfg(freq.key)) }
+
 #output.directory = "/Volumes/Extreme_SSD/Bailey_project/variant_analysis"
 #vcf.directory = "/Volumes/Extreme_SSD/Bailey_project/vcf_files"
 
@@ -683,155 +707,159 @@ cat(sprintf("Indel proximity: %d indel position(s) from %d sample(s) with an iVa
 if (n.src < nrow(final.data))
   cat(sprintf("  %d row(s) have NO indel source (iVar did not run for that sample): dist_to_indel is NA and means UNKNOWN, not far\n",
               nrow(final.data) - n.src))
-
 #############################################
-#### Call assessment - the FluLens verdict, stated in the table
+#### Call assessment
 #############################################
-# The verdict is computed here, not in FluLens, so the table is the single source of
-# truth and the viewer reads it. Same reason af_type / allele_fraction are stated
-# above. The rule is FluLens assessCore, with one fix: the strand-skew test needs
-# reference reads, so it is skipped when the reference side has fewer than
-# AS_STRAND_MIN_ALT reads (a fixed call). FluLens uses the same rule.
-# Three columns are added (raw DP4 is not, because its commas break this CSV):
-#   alt_reads     reads that support the alt (DP4 alt fwd+rev), not depth*freq
-#   strand_class  balanced / some-skew / skewed / too-few-alt / no-ref-control /
-#                 not-assessed (ONT) / NA
-#   assessment    Looks real / Treat with caution / Likely artefact / Cannot assess
+# Give each call the same verdict as FluLens assessCore. The verdict is set here,
+# not in FluLens, so every tool that reads the table gets the same verdict.
+# The verdict uses the DP4 read counts of the call: reference forward, reference
+# reverse, alt forward and alt reverse. DP4 is not a column, because its commas
+# break this unquoted CSV. min.depth, min.alt and min.freq come from the config at
+# the top of this script. This block adds three columns:
+#   alt_reads     reads that support the alt (DP4 alt forward + alt reverse)
+#   strand_class  balanced, some-skew, skewed, too-few-alt, no-ref-control,
+#                 not-assessed (strand test off) or NA (no DP4 record)
+#   assessment    Looks real, Treat with caution, Likely artefact or Cannot assess
 
-# Thresholds, from the same config keys as FluLens loadRunThresholds.
-num.cfg = function(key, default) {
-  v = suppressWarnings(as.numeric(gsub("\"", "", config[[key]])))
-  if (length(v) == 0L || is.na(v)) default else v
-}
-AS_MIN_DEPTH = num.cfg("MIN_DEPTH", 100)
-AS_MIN_ALT   = num.cfg("MIN_ALT", 10)
-# Flumina writes MIN_ALLELE_FREQUENCY; FluPore (ONT) writes MIN_FREQ. Match both.
-AS_MIN_FREQ  = if (!is.null(config[["MIN_FREQ"]])) num.cfg("MIN_FREQ", 0.01) else num.cfg("MIN_ALLELE_FREQUENCY", 0.01)
-AS_STRAND_MIN_ALT = 4L; AS_SKEW_BAD = 0.40; AS_SKEW_WARN = 0.25
-# ONT reads have inherent strand bias, so the strand test is off for FluPore runs.
-# MIN_FREQ marks one, as in FluLens runStrandBias.
+# Fixed strand limits. These are AS_STRAND_MIN_ALT, AS_SKEW_BAD and AS_SKEW_WARN
+# in FluLens.
+strand.min.reads = 4
+skew.bad         = 0.40
+skew.warn        = 0.25
+
+# ONT reads have a strand bias that is not an artefact, so FluPore runs do not
+# use the strand test. A MIN_FREQ key identifies a FluPore run, as in FluLens.
 run.strand.bias = is.null(config[["MIN_FREQ"]])
 
-# DP4 for every call, from the same per-sample files FluLens reads.
-read.lofreq.dp4 = function() {
-  fl = list.files(vcf.directory, pattern = "lofreq-called-variants.vcf$", recursive = TRUE)
-  out = vector("list", length(fl))
-  for (i in seq_along(fl)) {
-    samp = gsub("/.*", "", fl[i])
-    ln = readLines(file.path(vcf.directory, fl[i]), warn = FALSE)
-    ln = ln[!startsWith(ln, "#") & nzchar(ln)]
-    if (!length(ln)) next
-    f = data.table::tstrsplit(ln, "\t", fixed = TRUE)
-    info = f[[8]]
-    dp4 = sub(".*DP4=([0-9]+,[0-9]+,[0-9]+,[0-9]+).*", "\\1", info)
-    dp4[!grepl("DP4=", info)] = NA_character_
-    out[[i]] = data.table::data.table(sample = samp, locus = as.character(f[[1]]),
-                                      position = as.numeric(f[[2]]), dp4_lo = dp4)
-  }
-  d = data.table::rbindlist(out)
-  # FluLens keys the LoFreq record by position only and lets a later line win.
-  if (nrow(d)) d = unique(d, by = c("sample", "locus", "position"), fromLast = TRUE)
-  d
+# Read the DP4 counts from the same per-sample files that FluLens reads. The id
+# of a record is the caller, sample, locus and position. The iVar id also has
+# the alt base, because iVar writes one row for each alt base.
+dp4.rows = list()
+
+# LoFreq writes DP4 in the INFO field of each VCF record.
+dp4.pattern = ".*DP4=([0-9]+,[0-9]+,[0-9]+,[0-9]+).*"
+lofreq.files = list.files(vcf.directory, pattern = "lofreq-called-variants.vcf$", recursive = TRUE)
+for (i in seq_along(lofreq.files)) {
+  vcf.lines = readLines(paste0(vcf.directory, "/", lofreq.files[i]), warn = FALSE)
+  vcf.lines = vcf.lines[!startsWith(vcf.lines, "#") & grepl(dp4.pattern, vcf.lines)]
+  if (length(vcf.lines) == 0) { next }
+
+  # Split the records into VCF columns: 1 is CHROM, 2 is POS and 8 is INFO.
+  fields = data.table::tstrsplit(vcf.lines, "\t", fixed = TRUE)
+  dp4 = sub(dp4.pattern, "\\1", fields[[8]])
+  dp4.counts = data.table::tstrsplit(dp4, ",", fixed = TRUE)
+
+  dp4.rows[[length(dp4.rows) + 1]] = data.frame(
+    id      = paste("LoFreq", gsub("/.*", "", lofreq.files[i]), fields[[1]],
+                    as.numeric(fields[[2]]), sep = "|"),
+    ref.fwd = as.numeric(dp4.counts[[1]]),
+    ref.rev = as.numeric(dp4.counts[[2]]),
+    alt.fwd = as.numeric(dp4.counts[[3]]),
+    alt.rev = as.numeric(dp4.counts[[4]]),
+    stringsAsFactors = FALSE)
 }
-read.ivar.dp4 = function() {
-  fl = list.files(vcf.directory, pattern = "ivar-called-variants.tsv$", recursive = TRUE)
-  out = vector("list", length(fl))
-  need = c("REGION", "POS", "ALT", "REF_DP", "REF_RV", "ALT_DP", "ALT_RV")
-  for (i in seq_along(fl)) {
-    samp = gsub("/.*", "", fl[i])
-    d = try(data.table::fread(file.path(vcf.directory, fl[i]), sep = "\t", fill = TRUE,
-                              colClasses = list(character = c("REGION", "REF", "ALT"))),
-            silent = TRUE)
-    if (inherits(d, "try-error") || is.null(nrow(d)) || nrow(d) == 0L ||
-        !all(need %in% names(d))) next
-    d = d[!grepl("^[+-]", ALT)]
-    if (!nrow(d)) next
-    out[[i]] = data.table::data.table(
-      sample = samp, locus = as.character(d$REGION), position = as.numeric(d$POS),
-      alternative = as.character(d$ALT),
-      dp4_iv = paste(as.numeric(d$REF_DP) - as.numeric(d$REF_RV), as.numeric(d$REF_RV),
-                     as.numeric(d$ALT_DP) - as.numeric(d$ALT_RV), as.numeric(d$ALT_RV),
-                     sep = ","))
-  }
-  d = data.table::rbindlist(out)
-  # iVar keys on the ALT base too, since it writes one row per alternative.
-  if (nrow(d)) d = unique(d, by = c("sample", "locus", "position", "alternative"), fromLast = TRUE)
-  d
+
+# iVar writes the counts in the columns of its TSV. ivar.files is the file list
+# from the iVar block above.
+ivar.need = c("REGION", "POS", "ALT", "REF_DP", "REF_RV", "ALT_DP", "ALT_RV")
+for (i in seq_along(ivar.files)) {
+  ivar.tab = try(data.table::fread(paste0(vcf.directory, "/", ivar.files[i]), sep = "\t", fill = TRUE,
+                                   colClasses = list(character = c("REGION", "REF", "ALT"))),
+                 silent = TRUE)
+  if (inherits(ivar.tab, "try-error") || nrow(ivar.tab) == 0 ||
+      !all(ivar.need %in% names(ivar.tab))) { next }
+
+  # The table has no indels, so skip them here too.
+  ivar.tab = ivar.tab[!grepl("^[+-]", ivar.tab$ALT), ]
+  if (nrow(ivar.tab) == 0) { next }
+
+  # iVar gives the total and the reverse count, so forward = total - reverse.
+  dp4.rows[[length(dp4.rows) + 1]] = data.frame(
+    id      = paste("iVar", gsub("/.*", "", ivar.files[i]), ivar.tab$REGION,
+                    as.numeric(ivar.tab$POS), ivar.tab$ALT, sep = "|"),
+    ref.fwd = as.numeric(ivar.tab$REF_DP) - as.numeric(ivar.tab$REF_RV),
+    ref.rev = as.numeric(ivar.tab$REF_RV),
+    alt.fwd = as.numeric(ivar.tab$ALT_DP) - as.numeric(ivar.tab$ALT_RV),
+    alt.rev = as.numeric(ivar.tab$ALT_RV),
+    stringsAsFactors = FALSE)
 }
-lofreq.dp4 = read.lofreq.dp4()
-ivar.dp4   = read.ivar.dp4()
 
-fd = data.table::as.data.table(final.data)
-orig.cols = names(final.data)   # merge() reorders; restored before the write
-fd[, .ord := .I]
-# Left-merge each DP4 source, then pick per caller. Both sources are unique on their
-# key, so no row is duplicated. .ord restores the row order after the merges sort.
-if (nrow(ivar.dp4)) {
-  fd = merge(fd, ivar.dp4[, c("sample", "locus", "position", "alternative", "dp4_iv")],
-             by = c("sample", "locus", "position", "alternative"), all.x = TRUE, sort = FALSE)
-} else fd[, dp4_iv := NA_character_]
-if (nrow(lofreq.dp4)) {
-  fd = merge(fd, lofreq.dp4[, c("sample", "locus", "position", "dp4_lo")],
-             by = c("sample", "locus", "position"), all.x = TRUE, sort = FALSE)
-} else fd[, dp4_lo := NA_character_]
-# iVar rows read iVar's TSV (keyed by alt); LoFreq and GATK4 rows read LoFreq's
-# VCF at the position (GATK4 borrows it - same as FluLens strandRecOf).
-fd[, dp4 := ifelse(method == "iVar", dp4_iv, dp4_lo)]
-fd[, c("dp4_iv", "dp4_lo") := NULL]
+if (length(dp4.rows) > 0) {
+  dp4.table = data.table::rbindlist(dp4.rows)
+} else {
+  # Same columns, no rows, so the lookup below works when no file has DP4.
+  dp4.table = data.table::data.table(id = character(), ref.fwd = numeric(),
+                                     ref.rev = numeric(), alt.fwd = numeric(),
+                                     alt.rev = numeric())
+}
 
-d4 = data.table::tstrsplit(fd$dp4, ",", fixed = TRUE)
-rf = as.numeric(d4[[1]]); rr = as.numeric(d4[[2]])
-af = as.numeric(d4[[3]]); ar = as.numeric(d4[[4]])
-at = af + ar; rt = rf + rr
-alt.frac = ifelse(at > 0, af / at, 0)
-ref.frac = ifelse(rt > 0, rf / rt, 0)
-skew = abs(alt.frac - ref.frac)
-freqF  = ifelse(is.finite(fd$allele_fraction), fd$allele_fraction, fd$allele_frequency)
-depthN = suppressWarnings(as.numeric(fd$depth))
-have   = !is.na(fd$dp4)
+# FluLens keeps the last record for an id, so do the same here.
+dp4.table = dp4.table[!duplicated(dp4.table$id, fromLast = TRUE), ]
 
-# strand class - the test order matters and matches assessCore.
-strand = rep("not-assessed", nrow(fd))
+# Find the DP4 record of each call. iVar rows use the iVar record. LoFreq and
+# GATK4 rows use the LoFreq record at the same position, because GATK4 writes no
+# DP4 (as in FluLens strandRecOf). A call with no record gets NA counts.
+row.id = ifelse(final.data$method == "iVar",
+                paste("iVar", final.data$sample, final.data$locus,
+                      final.data$position, final.data$alternative, sep = "|"),
+                paste("LoFreq", final.data$sample, final.data$locus,
+                      final.data$position, sep = "|"))
+row.dp4 = match(row.id, dp4.table$id)
+has.dp4 = !is.na(row.dp4)
+
+ref.fwd   = dp4.table$ref.fwd[row.dp4]
+alt.fwd   = dp4.table$alt.fwd[row.dp4]
+ref.reads = ref.fwd + dp4.table$ref.rev[row.dp4]
+alt.reads = alt.fwd + dp4.table$alt.rev[row.dp4]
+
+# The forward share of the alt reads and of the reference reads. The skew is the
+# difference between the two shares.
+alt.frac = ifelse(alt.reads > 0, alt.fwd / alt.reads, 0)
+ref.frac = ifelse(ref.reads > 0, ref.fwd / ref.reads, 0)
+skew     = abs(alt.frac - ref.frac)
+
+# Use allele_fraction. A GATK4 row with no fraction uses its allele_frequency.
+freq = ifelse(is.na(final.data$allele_fraction), final.data$allele_frequency,
+              final.data$allele_fraction)
+
+# The strand class of each call. The tests are in the same order as in FluLens
+# assessCore, and the first test that is true gives the class. A call with too
+# few reference reads (a fixed call) gets no-ref-control, because the skew test
+# needs reference reads.
+strand.class = rep("not-assessed", nrow(final.data))
 if (run.strand.bias) {
-  strand = ifelse(at < AS_STRAND_MIN_ALT, "too-few-alt",
-           ifelse(alt.frac == 0 | alt.frac == 1, "skewed",
-           ifelse(rt < AS_STRAND_MIN_ALT, "no-ref-control",
-           ifelse(skew > AS_SKEW_BAD, "skewed",
-           ifelse(skew > AS_SKEW_WARN, "some-skew", "balanced")))))
+  strand.class = ifelse(alt.reads < strand.min.reads, "too-few-alt",
+                 ifelse(alt.frac == 0 | alt.frac == 1, "skewed",
+                 ifelse(ref.reads < strand.min.reads, "no-ref-control",
+                 ifelse(skew > skew.bad, "skewed",
+                 ifelse(skew > skew.warn, "some-skew", "balanced")))))
 }
-strand[!have] = NA_character_
+strand.class[!has.dp4] = NA_character_
 
-# verdict codes: 0 real, 1 caution, 2 artefact, 3 cannot assess
-verdict = rep(3L, nrow(fd))
-is.bad  = have & run.strand.bias & strand == "skewed"
-few.alt = have & at < AS_MIN_ALT
-verdict[is.bad] = 2L
-verdict[!is.bad & few.alt] = 2L
-rem = have & verdict != 2L
-caution = rem & (depthN < AS_MIN_DEPTH | freqF < AS_MIN_FREQ |
-                 (run.strand.bias & strand %in% c("some-skew", "too-few-alt")))
-verdict[caution] = 1L
-verdict[rem & !caution] = 0L
+# The verdict of each call, with the same tests as FluLens assessCore. A call
+# with no DP4 record cannot be assessed.
+likely.artefact = has.dp4 &
+  (alt.reads < min.alt | (run.strand.bias & strand.class == "skewed"))
+caution = has.dp4 & !likely.artefact &
+  (final.data$depth < min.depth | freq < min.freq |
+   (run.strand.bias & strand.class %in% c("some-skew", "too-few-alt")))
+looks.real = has.dp4 & !likely.artefact & !caution
 
-fd$alt_reads    = at
-fd$strand_class = strand
-fd$assessment   = c("Looks real", "Treat with caution",
-                    "Likely artefact", "Cannot assess")[verdict + 1L]
+assessment = rep("Cannot assess", nrow(final.data))
+assessment[likely.artefact] = "Likely artefact"
+assessment[caution]         = "Treat with caution"
+assessment[looks.real]      = "Looks real"
 
-fd[, dp4 := NULL]   # internal only - its commas would break this unquoted CSV
-data.table::setorder(fd, .ord)
-fd[, .ord := NULL]
-# Restore the original column order (merge moved the keys to the front); new columns
-# go last, so the published layout does not change for a reader that uses position.
-data.table::setcolorder(fd, c(orig.cols, "alt_reads", "strand_class", "assessment"))
-final.data = as.data.frame(fd, stringsAsFactors = FALSE)
+final.data$alt_reads    = alt.reads
+final.data$strand_class = strand.class
+final.data$assessment   = assessment
 
-vt = table(factor(final.data$assessment,
-                  levels = c("Looks real", "Treat with caution",
-                             "Likely artefact", "Cannot assess")))
+assessment.counts = table(factor(assessment,
+                                 levels = c("Looks real", "Treat with caution",
+                                            "Likely artefact", "Cannot assess")))
 cat(sprintf("Call assessment (MIN_DEPTH=%g MIN_ALT=%g MIN_FREQ=%g strand_bias=%s): %s\n",
-            AS_MIN_DEPTH, AS_MIN_ALT, AS_MIN_FREQ, run.strand.bias,
-            paste(names(vt), vt, sep = "=", collapse = "  ")))
+            min.depth, min.alt, min.freq, run.strand.bias,
+            paste(names(assessment.counts), assessment.counts, sep = "=", collapse = "  ")))
 
 # Save the data.
 write.csv(final.data, paste0(output.directory, "/", save.name, ".csv"),

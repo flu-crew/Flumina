@@ -184,14 +184,14 @@ process PREPARE_REFERENCE {
      * driver copied the reference to the output root before calling snakemake,
      * so the R scripts depend on it being there. Reproduce that placement.
      *
-     * (Details of an unpublished run were removed here.)
-     *
-     *
-     *
-     *
-     *
-     *
-     *
+     * saveAs returns null when the user-supplied reference is already that file.
+     * Without the guard this process
+     * republishes its own input on top of itself: same bytes, new mtime, and
+     * Nextflow's default cache hash includes an input's last-modified time. So
+     * PREPARE_REFERENCE could never be cached, every downstream task saw a
+     * changed input, and `-resume` re-ran the entire alignment and calling
+     * chain: a resume that should have restarted at FLUMUT began re-running
+     * BWA_MAP across every sample.
      *
      * Keeping the reference inside the output directory is a natural thing to
      * do — it makes the run self-contained — so this is guarded rather than
